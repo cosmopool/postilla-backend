@@ -412,6 +412,8 @@ Creating a draft checks for a draft in progress and inserts the new one in the s
 
 Everything comes from env, read and checked once at startup. A missing required value stops the server before it binds.
 
+[`.env.example`](../.env.example) lists every variable with its default. Copy it to `.env`, which git ignores. The same file works as the systemd `EnvironmentFile`.
+
 | Variable | Default | What it is |
 |---|---|---|
 | `POSTILLA_PORT` | `8080` | HTTP port |
