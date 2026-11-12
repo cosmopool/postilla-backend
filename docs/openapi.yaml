@@ -1,0 +1,490 @@
+openapi: 3.1.0
+info:
+  title: Postilla story feed backend
+  version: 1.0.0
+  description: |
+    Tells the Postilla app which stories were published since it last asked, and turns
+    Italian drafts into published stories (moderation, translation, review, narration).
+    The full design is in [specification.md](specification.md); this file mirrors its
+    endpoints and must change with it.
+
+    ## Binary bodies
+
+    Every body is binary (`application/octet-stream`), big-endian (network byte order),
+    with no padding:
+
+    | Type | Encoding |
+    |---|---|
+    | `u8`, `u16`, `u32` | Unsigned integers of 1, 2 and 4 bytes |
+    | `str` | `u32` byte length, then that many bytes of UTF-8 |
+    | `uuid` | 16 bytes: the UUID's 32 hex digits as bytes in written order |
+
+    Every structured body starts with a 4-byte ASCII magic and a `u8` version (`1` for every
+    format here). A request whose magic is wrong or whose version is unknown gets a 400.
+    A body made of a single `u32` (a cursor or a draft id) has no magic or version.
+
+    ## Draft states
+
+    | Value | State | Final |
+    |---|---|---|
+    | 1 | `moderating` | |
+    | 2 | `rejected` | yes |
+    | 3 | `translating` | |
+    | 4 | `review` | |
+    | 5 | `narrating` | |
+    | 6 | `publishing` | |
+    | 7 | `published` | yes |
+    | 8 | `failed` | |
+    | 9 | `discarded` | yes |
+
+    A story has at most one draft that isn't final.
+
+    Error responses carry no body that this document specifies.
+servers:
+  - url: http://127.0.0.1:8080
+    description: Default bind address and port (POSTILLA_BIND, POSTILLA_PORT); TLS is the reverse proxy's job
+tags:
+  - name: feed
+    description: What the app reads
+  - name: publish
+    description: Publishing stories whose files are already in R2
+  - name: drafts
+    description: Turning Italian text into a published story
+
+paths:
+  /stories:
+    get:
+      tags: [feed]
+      operationId: getFeed
+      summary: Stories published after a cursor
+      description: |
+        Returns one record per story whose cursor is greater than `since`, ascending by
+        cursor. The app stores the last record's `cursor` and sends it next time, and builds
+        download URLs from each record's `id` and `sha256`
+        (`stories/<id>/<sha256>.tilla.gz` and `.opus`).
+      security: []
+      parameters:
+        - name: since
+          in: query
+          required: false
+          description: The newest cursor the app has. Missing counts as 0, which returns every story.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+            maximum: 4294967295
+            default: 0
+      responses:
+        "200":
+          description: |
+            `FEED` body, `9 + 52 × count` bytes:
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `magic` | 4 bytes | `FEED` |
+            | `version` | `u8` | `1` |
+            | `count` | `u32` | Number of records that follow |
+
+            Then `count` records, ascending by `cursor`:
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `id` | `uuid` | Story id |
+            | `sha256` | 32 bytes | sha256 of the story's `.tilla.gz` |
+            | `cursor` | `u32` | The story's cursor |
+
+            When nothing is new, the body is the 9-byte header with `count` 0.
+          content:
+            application/octet-stream:
+              schema:
+                $ref: "#/components/schemas/Binary"
+        "400":
+          description: "`since` isn't a decimal u32"
+    post:
+      tags: [publish]
+      operationId: publishStory
+      summary: Publish or republish a story whose files are already in R2
+      description: |
+        The files must already be in R2 under `stories/<id>/<sha256>.tilla.gz` (and `.opus`
+        when `has_opus` is 1); the server doesn't check that they exist. A new story, or an
+        existing one with a new sha256, takes the next cursor. The same sha256 is a no-op
+        that keeps the cursor.
+      security:
+        - publishToken: []
+      requestBody:
+        required: true
+        description: |
+          `STRY` body, exactly 54 bytes:
+
+          | Field | Type | Value |
+          |---|---|---|
+          | `magic` | 4 bytes | `STRY` |
+          | `version` | `u8` | `1` |
+          | `id` | `uuid` | Story id |
+          | `sha256` | 32 bytes | sha256 of the `.tilla.gz` |
+          | `has_opus` | `u8` | 1 when the story has a `.opus`, 0 for a story without narration |
+        content:
+          application/octet-stream:
+            schema:
+              $ref: "#/components/schemas/Binary"
+      responses:
+        "200":
+          description: The story's cursor, a bare `u32` (4 bytes)
+          content:
+            application/octet-stream:
+              schema:
+                $ref: "#/components/schemas/U32"
+        "400":
+          description: Wrong magic or version, a body that isn't 54 bytes, or `has_opus` not 0 or 1
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+
+  /stories/{id}/narrate:
+    post:
+      tags: [drafts]
+      operationId: narrateStory
+      summary: Add narration to a published story
+      description: |
+        Starts a narration-only draft at `narrating`. The worker downloads the story's current
+        `.tilla.gz`, copies its header and sentences unchanged, then narrates and republishes
+        it. The new `.tilla` has a new sha256, so the story gets a new cursor. A story that
+        already has narration is narrated again, and the new audio replaces the old.
+      security:
+        - publishToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Story UUID in its written form
+          schema:
+            type: string
+            format: uuid
+            example: d0159518-99cc-46f0-bef2-b5b6f6f9a76d
+      responses:
+        "202":
+          $ref: "#/components/responses/DraftCreated"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: The story id isn't in the feed
+        "409":
+          description: The story already has a draft in progress
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+
+  /drafts:
+    post:
+      tags: [drafts]
+      operationId: createDraft
+      summary: Start a draft from Italian text
+      description: |
+        The worker starts `moderating`, then `translating`, and stops at `review` for you.
+        A draft for a story id that is already published counts as a republish.
+      security:
+        - publishToken: []
+      requestBody:
+        required: true
+        description: |
+          `DNEW` body:
+
+          | Field | Type | Value |
+          |---|---|---|
+          | `magic` | 4 bytes | `DNEW` |
+          | `version` | `u8` | `1` |
+          | `id` | `uuid` | Story id |
+          | `title` | `str` | Title, not empty |
+          | `subtitle` | `str` | Subtitle, not empty |
+          | `level` | `u8` | 1 A1 · 2 A2 · 3 B1 · 4 B2 |
+          | `genre` | `str` | A `genre.id`, not empty |
+          | `work` | `str` | Work name; `''` outside a work |
+          | `part` | `u16` | Part of the work; 0 outside a work |
+          | `paragraph_count` | `u16` | At least 1 |
+
+          Then `paragraph_count` paragraphs, in reading order:
+
+          | Field | Type | Value |
+          |---|---|---|
+          | `sentence_count` | `u16` | At least 1 |
+          | `sentences` | `str` × `sentence_count` | Italian sentences, none empty |
+
+          `work` is empty exactly when `part` is 0. The story is at most 20,000 characters
+          (the narration limit). No bytes may follow the last paragraph.
+        content:
+          application/octet-stream:
+            schema:
+              $ref: "#/components/schemas/Binary"
+      responses:
+        "202":
+          $ref: "#/components/responses/DraftCreated"
+        "400":
+          description: The body fails the parse (any rule in the request body description)
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: The story already has a draft in progress
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+    get:
+      tags: [drafts]
+      operationId: listDrafts
+      summary: List drafts, optionally in one state
+      security:
+        - publishToken: []
+      parameters:
+        - name: state
+          in: query
+          required: false
+          description: A state name. Missing lists every draft.
+          schema:
+            $ref: "#/components/schemas/StateName"
+      responses:
+        "200":
+          description: |
+            `DLST` body:
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `magic` | 4 bytes | `DLST` |
+            | `version` | `u8` | `1` |
+            | `count` | `u32` | Number of records that follow |
+
+            Then `count` records, newest draft first:
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `draft_id` | `u32` | Draft id |
+            | `id` | `uuid` | Story id |
+            | `state` | `u8` | Current state (see Draft states) |
+            | `title` | `str` | Title |
+          content:
+            application/octet-stream:
+              schema:
+                $ref: "#/components/schemas/Binary"
+        "400":
+          description: Unknown state name
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /drafts/{draft_id}:
+    get:
+      tags: [drafts]
+      operationId: getDraft
+      summary: A draft's state, error, moderation result and sentences
+      security:
+        - publishToken: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      responses:
+        "200":
+          description: |
+            `DRFT` body:
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `magic` | 4 bytes | `DRFT` |
+            | `version` | `u8` | `1` |
+            | `draft_id` | `u32` | Draft id |
+            | `id` | `uuid` | Story id |
+            | `state` | `u8` | Current state (see Draft states) |
+            | `failed_step` | `u8` | The state that failed, when `state` is `failed`; 0 otherwise |
+            | `attempts` | `u8` | Tries made by the current or failed step |
+            | `error` | `str` | Stored error; `''` when there is none |
+            | `moderation` | `u16` × 6 | `none`, `homophobic`, `racist`, `sexist`, `religious`, `other_hate`, in thousandths (0 to 1000); all 0 before moderation |
+            | `title` | `str` | Title |
+            | `subtitle` | `str` | Subtitle |
+            | `level` | `u8` | Level |
+            | `genre` | `str` | Genre id |
+            | `work` | `str` | Work name |
+            | `part` | `u16` | Part |
+            | `paragraph_count` | `u16` | Number of paragraphs that follow |
+
+            Then each paragraph: a `sentence_count` (`u16`), followed by that many pairs:
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `it` | `str` | Italian sentence |
+            | `pt` | `str` | Portuguese sentence; `''` before translation |
+          content:
+            application/octet-stream:
+              schema:
+                $ref: "#/components/schemas/Binary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownDraft"
+
+  /drafts/{draft_id}/translation:
+    put:
+      tags: [drafts]
+      operationId: editTranslation
+      summary: Replace the Portuguese sentences of a draft in review
+      description: The draft stays in `review`.
+      security:
+        - publishToken: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      requestBody:
+        required: true
+        description: |
+          `TRNS` body:
+
+          | Field | Type | Value |
+          |---|---|---|
+          | `magic` | 4 bytes | `TRNS` |
+          | `version` | `u8` | `1` |
+          | `paragraph_count` | `u16` | Must equal the draft's |
+
+          Then each paragraph: a `sentence_count` (`u16`, which must equal the draft's for that
+          paragraph), followed by that many `str` Portuguese sentences, none empty.
+        content:
+          application/octet-stream:
+            schema:
+              $ref: "#/components/schemas/Binary"
+      responses:
+        "200":
+          description: Saved. No body.
+        "400":
+          description: The body fails the parse, or a paragraph or sentence count doesn't match the draft
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownDraft"
+        "409":
+          description: The draft isn't in `review`
+
+  /drafts/{draft_id}/retranslate:
+    post:
+      tags: [drafts]
+      operationId: retranslateDraft
+      summary: Discard the Portuguese and translate again
+      description: Needs the draft in `review`. It goes back to `translating`.
+      security:
+        - publishToken: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Done"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownDraft"
+        "409":
+          description: The draft isn't in `review`
+
+  /drafts/{draft_id}/approve:
+    post:
+      tags: [drafts]
+      operationId: approveDraft
+      summary: Freeze the translation and start narration
+      description: |
+        Needs the draft in `review`. It moves to `narrating`, then `publishing`, and the
+        story takes the next cursor when publishing finishes.
+      security:
+        - publishToken: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Done"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownDraft"
+        "409":
+          description: The draft isn't in `review`
+
+  /drafts/{draft_id}/resume:
+    post:
+      tags: [drafts]
+      operationId: resumeDraft
+      summary: Rerun the step that failed
+      description: |
+        Needs the draft in `failed`. The failed step reruns from scratch with a fresh try
+        count; work from earlier steps is kept.
+      security:
+        - publishToken: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Done"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownDraft"
+        "409":
+          description: The draft isn't in `failed`
+
+  /drafts/{draft_id}/discard:
+    post:
+      tags: [drafts]
+      operationId: discardDraft
+      summary: Drop a draft so the story can get a new one
+      description: |
+        Needs the draft in `review` or `failed`. It moves to `discarded` (final) and stays as
+        history. A draft a worker is running can't be discarded until it stops.
+      security:
+        - publishToken: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Done"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownDraft"
+        "409":
+          description: The draft isn't in `review` or `failed`
+
+components:
+  securitySchemes:
+    publishToken:
+      type: http
+      scheme: bearer
+      description: |
+        The token in env `POSTILLA_PUBLISH_TOKEN`, compared in constant time. A missing or
+        wrong token gets a 401 before the body is read.
+  parameters:
+    DraftId:
+      name: draft_id
+      in: path
+      required: true
+      description: Draft id, a decimal `u32`
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+        maximum: 4294967295
+  schemas:
+    Binary:
+      type: string
+      contentMediaType: application/octet-stream
+      description: Big-endian binary body; the layout is in the operation's description
+    U32:
+      type: string
+      contentMediaType: application/octet-stream
+      minLength: 4
+      maxLength: 4
+      description: A bare big-endian `u32`, 4 bytes, no magic or version
+    StateName:
+      type: string
+      enum: [moderating, rejected, translating, review, narrating, publishing, published, failed, discarded]
+  responses:
+    DraftCreated:
+      description: Draft created. The body is the new draft id, a bare `u32` (4 bytes).
+      content:
+        application/octet-stream:
+          schema:
+            $ref: "#/components/schemas/U32"
+    Done:
+      description: Done. No body.
+    Unauthorized:
+      description: Missing or wrong bearer token
+    UnknownDraft:
+      description: Unknown draft id
+    DatabaseError:
+      description: SQLite error
