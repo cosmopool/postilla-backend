@@ -28,7 +28,8 @@ Every branch a caller must handle multiplies codepaths; give callers one.
 - Errors go to a log side channel (`std.log.scoped(.config)`), not error-payload slots.
 
 # Rules
-- After changing Zig code, run `zig build test` in `backend/` and fix every failure. Run `zig fmt` on changed files.
+- English only, everywhere: code, comments, logs, tests, docs, specs, commit messages. Exception: story content (Italian and Portuguese text in stories, translations, test fixtures and the moderation test set).
+- After changing Zig code, run `zig build test` and fix every failure. Run `zig fmt` on changed files.
 - After each change, update the docs in the same change. A change the docs don't describe isn't done.
   - `docs/specification.md`: anything about the backend's behavior, endpoints, formats, schema or config.
   - `docs/openapi.yaml`: any endpoint, parameter, status code, auth rule, or body layout table.
