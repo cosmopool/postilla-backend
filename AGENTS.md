@@ -34,7 +34,8 @@ Every branch a caller must handle multiplies codepaths; give callers one.
   - `docs/specification.md`: anything about the backend's behavior, endpoints, formats, schema or config.
   - `docs/openapi.yaml`: any endpoint, parameter, status code, auth rule, or body layout table.
   - `docs/formats/*.ksy`: any binary body (magic, version, field, type, order, enum value). Add a `.ksy` for a new format.
-  - `../docs/CONTRACT.md`, `../docs/TILLA.md` and `../docs/tilla.ksy`: when the change touches what they describe.
+  - `docs/tilla.md` and `docs/formats/tilla.ksy`: any change to the `.tilla` format or its reader rules. The backend is the only writer.
+  - `../docs/CONTRACT.md`: when the change touches what it describes (`dict.db`).
   - These files describe the same thing; when they disagree, the code and all of them get fixed together.
 - Always follow `.agents/rules/testing.md` when writing/editing/reviewing tests.
 
