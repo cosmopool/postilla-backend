@@ -1,6 +1,6 @@
 # Handoff to the learner app
 
-What the Postilla learner app has to do with what the backend and postilla-content serve: its rules and business logic. The backend docs describe only what they guarantee and link here for the app side. Read [metadata.md](metadata.md) for the data model, [tilla.md](tilla.md) for the story file and [CONTRACT.md](CONTRACT.md) for `dict.db`. When an item is built in the app, record it in the app's own docs and remove it here.
+What the Postilla learner app has to do with what the backend and postilla-content serve: its rules and business logic. The backend docs describe only what they guarantee and link here for the app side. Read [specification.md](specification.md#stories-and-translations) for the data model, [tilla.md](tilla.md) for the story file and [CONTRACT.md](CONTRACT.md) for `dict.db`. When an item is built in the app, record it in the app's own docs and remove it here.
 
 ## 1. Languages
 
@@ -14,7 +14,7 @@ What the Postilla learner app has to do with what the backend and postilla-conte
 
 - **Records.** Each `FEED` record is one translation: `id`, `lang`, `change`, `sha256`, `cursor`. `change` 1 `published` means download `sha256`; `change` 2 `removed` means delete the local copy of that story. A new story and an updated one look the same; tell them apart by whether the id is already on the device. Ignore a `removed` record for an id the device doesn't have (they come in every sync, `since=0` included). Any other `change` value is an error.
 - **Atomic per story.** Group a sync's records by story `id`. Download that story's `.tilla.gz` files into a temporary directory and check each against its `sha256`. Only when every one of them is there and verified, move them into place in one step, replacing the old ones together. Until then the learner keeps the previous version. A story therefore never shows a new translation next to an old one.
-- **Cursor.** Store a cursor only up to the highest cursor at or below which every record has been applied. A story that keeps failing holds the cursor back but doesn't block stories already applied, and after a crash the next sync returns the unapplied records again. (This replaces specification.md's "the app stores the largest cursor it received".)
+- **Cursor.** Store a cursor only up to the highest cursor at or below which every record has been applied. A story that keeps failing holds the cursor back but doesn't block stories already applied, and after a crash the next sync returns the unapplied records again.
 - **No 404s.** The backend never deletes an R2 object, so a file the feed or a `.tilla` named is always there.
 - **Restores.** After a rare database restore the backend may reuse a few cursors; the app does nothing special, and catches up once new cursors pass its own.
 

@@ -31,5 +31,12 @@ types:
       - id: state
         type: u1
         enum: postilla_enums::state
+      - id: kind
+        type: u1
+        enum: postilla_enums::kind
+      - id: revision
+        type: u4
+        doc: Current revision
       - id: title
         type: postilla_str
+        doc: Italian title

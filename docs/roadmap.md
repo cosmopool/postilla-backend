@@ -21,15 +21,15 @@ When built: a 429 row in the spec's status codes, the env vars in Configuration 
 
 ## Authoring app
 
-An app to create, edit, approve and remove stories. What it needs now is specified in [metadata.md](metadata.md#8-authoring): removal, listing, edit drafts, the `listening` state and `/narrate`. Later:
+An app to create, edit, approve and remove stories. What it needs now is in [specification.md](specification.md#drafts): removal, listing, edit drafts, the `listening` state and `/narrate`. Later:
 
-- **Restore a removed story:** removal (`DELETE /stories/<id>`, see [metadata.md](metadata.md#8-authoring)) keeps the rows and the R2 files, so a story can come back. Proposed: `POST /stories/<id>/restore` (bearer token) sets every translation's `change` back to `published` with new cursors and the old `sha256`, in one transaction; apps download the files again. Alternatives: only through a new draft with the same id, or never.
+- **Restore a removed story:** removal (see [`DELETE /stories/<id>`](specification.md#delete-storiesid)) keeps the rows and the R2 files, so a story can come back. Proposed: `POST /stories/<id>/restore` (bearer token) sets every translation's `change` back to `published` with new cursors and the old `sha256`, in one transaction; apps download the files again. Alternatives: only through a new draft with the same id, or never.
 - **Web authoring app:** the first authoring clients are native, desktop and CLI, so the backend has no CORS. A web version later needs CORS on the token endpoints for one origin set in env (e.g. `POSTILLA_AUTHOR_ORIGIN`): answer the `OPTIONS` preflight with `204`, allow `Authorization` and `Content-Type` and the methods in use; other origins get no CORS headers. Serving it from the API's own domain through Caddy avoids CORS instead.
 - **Auth:** one bearer token (`POSTILLA_AUTHOR_TOKEN`) works for a single editor; more editors need per-user tokens.
 
 ## Card data in the feed
 
-Today the learner app draws story cards from the `.tilla` headers it downloads during sync ([metadata.md](metadata.md#7-one-story-many-translations)). An alternative: each `FEED` record carries the card fields after its fixed part (title, subtitle, level, genre, tags, author, work, part, `words`, `audio_ms`, `band_words`; empty when removed), stored on the `story` rows by the worker at publish from the same draft that writes the `.tilla`. Cards would draw right after a sync, and `.tilla` files could download when a story is opened, behind a "Downloading…" dialog, making the first sync tiny. The costs: variable-length `FEED` records on the hot path, the header written in two places, and stories not readable offline until opened once.
+Today the learner app draws story cards from the `.tilla` headers it downloads during sync ([Stories and translations](specification.md#stories-and-translations)). An alternative: each `FEED` record carries the card fields after its fixed part (title, subtitle, level, genre, tags, author, work, part, `words`, `audio_ms`, `band_words`; empty when removed), stored on the `story` rows by the worker at publish from the same draft that writes the `.tilla`. Cards would draw right after a sync, and `.tilla` files could download when a story is opened, behind a "Downloading…" dialog, making the first sync tiny. The costs: variable-length `FEED` records on the hot path, the header written in two places, and stories not readable offline until opened once.
 
 ## Picking the right lemma for each word
 

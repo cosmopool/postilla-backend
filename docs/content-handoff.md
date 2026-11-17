@@ -1,6 +1,6 @@
 # Handoff to postilla-content
 
-Changes from postilla-backend that postilla-content has to act on. Read [metadata.md](metadata.md) first: it is the proposal these come from. When an item is done, record it in `postilla-content/docs/` (CONTRACT.md, TILLA.md) and remove it here.
+Changes from postilla-backend that postilla-content has to act on. Read [specification.md](specification.md) first: these follow from it. When an item is done, record it in `postilla-content/docs/` (CONTRACT.md, TILLA.md) and remove it here.
 
 ## 1. Stories no longer come from the pipeline
 
@@ -23,3 +23,7 @@ This replaces CONTRACT.md's GitHub Releases and `manifest.json` on Pages (ARQ-06
 ## 4. Also
 
 - `stories.db` is dropped: nothing builds it anymore. Remove its writer and its description from CONTRACT.md.
+
+## 5. Data
+
+The eight existing stories are recreated through `POST /drafts` in the new shape, with their tags, once the backend runs. Their genres are already seeded in `postilla.db` from `genres.txt` (see [Database](specification.md#database)), so `genres.txt` can go once that's done.
