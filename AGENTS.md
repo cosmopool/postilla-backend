@@ -7,9 +7,9 @@ The backend is Zig (0.17, the `minimum_zig_version` in `build.zig.zon`) with ven
 ## Data and performance
 - Organize code around data and transformations.
 - Flat structures, contiguous memory: slices of structs over slices of pointers; fixed-size arrays or stack buffers; when the length is known, size an `ArrayList` once (`ensureTotalCapacity`) or allocate the slice once.
-- One arena per request or per draft step, freed in one go; no scattered `free`s.
+- One arena per request or per CLI step, freed in one go; no scattered `free`s.
 - Avoid unnecessary allocations, copies, and dynamic dispatch: no vtables or `*const fn` calls in hot loops, no needless `*anyopaque` type erasure, no `anytype` where a concrete type works.
-- Optimize hot paths (`GET /stories`); keep cold paths (drafts, startup) simple.
+- Optimize hot paths (`GET /stories`); keep cold paths (the CLI, startup) simple.
 
 ## Debuggability
 - Code should step cleanly in a debugger: explicit control flow, no clever constructs.

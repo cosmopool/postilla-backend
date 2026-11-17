@@ -1,6 +1,6 @@
 # Contrato do pacote
 
-O que o app Postilla e o backend leem do que é gerado aqui (ARQ-07): só o dicionário. As histórias não vêm mais deste repositório: são criadas como rascunhos no backend (`postilla-backend`), que escreve cada `.tilla` (formato em `postilla-backend/docs/tilla.md`). Mudança incompatível neste arquivo sobe o major do pacote (ARQ-12).
+O que o app Postilla e o backend leem do que é gerado aqui (ARQ-07): só o dicionário. As histórias não vêm mais deste repositório: são feitas pelo CLI do backend (`postilla`, em `postilla-backend`), que escreve cada `.tilla` (formato em `postilla-backend/docs/tilla.md`). Mudança incompatível neste arquivo sobe o major do pacote (ARQ-12).
 
 ```
 zig build run -- fetch     baixa as fontes em data/
@@ -30,7 +30,7 @@ O pacote vai para o bucket público do R2, o mesmo das histórias, e substitui a
 3f2a…c9e1 22829235
 ```
 
-Enviar o arquivo antes do ponteiro garante que quem lê um `dict/latest` novo sempre encontra o arquivo. Como o app usa o ponteiro está em `postilla-backend/docs/app-handoff.md`; o worker do backend o lê ao publicar uma história.
+Enviar o arquivo antes do ponteiro garante que quem lê um `dict/latest` novo sempre encontra o arquivo. Como o app usa o ponteiro está em `postilla-backend/docs/app-handoff.md`; o CLI do backend (`postilla publish`) o lê ao publicar uma história.
 
 O build precisa de credenciais de escrita do bucket. Tokens do R2 valem para o bucket inteiro, não por prefixo: o build só escreve sob `dict/` e nunca toca em `stories/`, que é do backend.
 
@@ -51,7 +51,7 @@ CREATE TABLE form  (form TEXT NOT NULL, form_norm TEXT NOT NULL, entry_id INTEGE
 - `entry.id` muda a cada build: ninguém o guarda (ARQ-35). Um `.tilla` guarda só spans de palavra; o app procura o texto do span por forma (`form`, depois `form_norm`).
 - `meta`: `version`, `wiktionary_dump` (data do dump, AAAA-MM-DD), `license`, `attribution` e uma linha `source.<arquivo>` por fonte, com URL e sha256.
 
-O worker do backend também lê `dict.db`, para `band_words` de cada `.tilla`: cada palavra conta na faixa mais comum entre os lemas a que sua forma leva (1 antes de 2, antes de 3, antes de 0); forma sem lema conta como 0.
+O CLI do backend (`postilla publish`) também lê `dict.db`, para `band_words` de cada `.tilla`: cada palavra conta na faixa mais comum entre os lemas a que sua forma leva (1 antes de 2, antes de 3, antes de 0); forma sem lema conta como 0.
 
 `entry.data` é JSON. Campo sem dado não aparece.
 
