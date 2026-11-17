@@ -6,8 +6,9 @@ meta:
     - postilla_str
     - postilla_enums
 doc: |
-  A draft's state, error, moderation result and sentences.
-  See specification.md, `GET /drafts/<id>`.
+  A draft's status, header, its title and subtitle in every translated language, and its
+  sentences: each Italian sentence followed by its translations, in the order of
+  `languages`. See specification.md, `GET /drafts/<id>`.
 doc-ref: ../specification.md
 seq:
   - id: magic
@@ -23,6 +24,9 @@ seq:
   - id: state
     type: u1
     enum: postilla_enums::state
+  - id: kind
+    type: u1
+    enum: postilla_enums::kind
   - id: failed_step
     type: u1
     enum: postilla_enums::state
@@ -35,19 +39,44 @@ seq:
     doc: Stored error; empty when there is none
   - id: moderation
     type: moderation
+  - id: revision
+    type: u4
+    doc: Current revision
   - id: title
     type: postilla_str
+    doc: Italian title
   - id: subtitle
     type: postilla_str
+    doc: Italian subtitle
   - id: level
     type: u1
     enum: postilla_enums::level
   - id: genre
     type: postilla_str
+  - id: tag_count
+    type: u2
+  - id: tags
+    type: postilla_str
+    repeat: expr
+    repeat-expr: tag_count
   - id: work
     type: postilla_str
   - id: part
     type: u2
+  - id: author
+    type: postilla_str
+  - id: adapted
+    type: u1
+  - id: license
+    type: postilla_str
+  - id: lang_count
+    type: u1
+    doc: Number of translated languages that follow
+  - id: languages
+    type: language
+    repeat: expr
+    repeat-expr: lang_count
+    doc: Translated languages, ascending by id (the original has its own fields)
   - id: paragraph_count
     type: u2
   - id: paragraphs
@@ -70,7 +99,21 @@ types:
         type: u2
       - id: other_hate
         type: u2
+  language:
+    seq:
+      - id: lang
+        type: strz
+        size: 8
+        encoding: ASCII
+        doc: A BCP 47 tag zero-padded to 8 bytes
+      - id: title
+        type: postilla_str
+        doc: Title in that language; empty before translation
+      - id: subtitle
+        type: postilla_str
+        doc: Subtitle in that language; empty before translation
   paragraph:
+    doc: Sentence counts follow the Italian.
     seq:
       - id: sentence_count
         type: u2
@@ -83,6 +126,10 @@ types:
       - id: it
         type: postilla_str
         doc: Italian sentence
-      - id: pt
+      - id: translations
         type: postilla_str
-        doc: Portuguese sentence; empty before translation
+        repeat: expr
+        repeat-expr: _root.lang_count
+        doc: |
+          One sentence per entry of `languages`, in that order; empty where that language
+          isn't translated yet

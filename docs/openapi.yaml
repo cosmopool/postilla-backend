@@ -3,51 +3,93 @@ info:
   title: Postilla story feed backend
   version: 1.0.0
   description: |
-    Tells the Postilla app which stories were published since it last asked, and turns
-    Italian drafts into published stories (moderation, translation, review, narration).
-    The full design is in [specification.md](specification.md); this file mirrors its
-    endpoints and must change with it.
+    Tells the Postilla app which story translations were published or removed since it last
+    asked, and turns Italian drafts into published stories (moderation, translation, review,
+    narration, listening, publishing). The full design is in
+    [specification.md](specification.md); this file mirrors its endpoints and must change
+    with it. The binary layouts are also in Kaitai Struct form, one file per body, in
+    [formats/](formats/).
 
     ## Binary bodies
 
-    Every body is binary (`application/octet-stream`), big-endian (network byte order),
-    with no padding:
+    Every structured body is binary (`application/octet-stream`), big-endian (network byte
+    order), with no padding:
 
     | Type | Encoding |
     |---|---|
     | `u8`, `u16`, `u32` | Unsigned integers of 1, 2 and 4 bytes |
     | `str` | `u32` byte length, then that many bytes of UTF-8 |
     | `uuid` | 16 bytes: the UUID's 32 hex digits as bytes in written order |
+    | `lang` | 8 bytes: a language id (a BCP 47 tag) in ASCII, zero-padded (`it\0\0\0\0\0\0`, `pt-BR\0\0\0`) |
+    | `sha256` | 32 bytes |
 
     Every structured body starts with a 4-byte ASCII magic and a `u8` version (`1` for every
     format here). A request whose magic is wrong or whose version is unknown gets a 400.
-    A body made of a single `u32` (a cursor or a draft id) has no magic or version.
+    A body made of a single `u32` (a draft id) has no magic or version.
+
+    | Magic | Body | Kaitai |
+    |---|---|---|
+    | `FEED` | `GET /stories` response | `feed.ksy` |
+    | `GNRS` | `GET /genres` response | `gnrs.ksy` |
+    | `TAGS` | `GET /tags` response | `tags.ksy` |
+    | `AUTH` | `GET /authors` response | `auth.ksy` |
+    | `LANG` | `GET /languages` response | `lang.ksy` |
+    | `PUBL` | `GET /published` response | `publ.ksy` |
+    | `DNEW` | `POST /drafts` request | `dnew.ksy` |
+    | `DLST` | `GET /drafts` response | `dlst.ksy` |
+    | `DRFT` | `GET /drafts/{draft_id}` response | `drft.ksy` |
+    | `TRNS` | `PUT /drafts/{draft_id}/translation` request | `trns.ksy` |
+    | `HEDR` | `PUT /drafts/{draft_id}/header` request | `hedr.ksy` |
+    | none | A bare `u32` draft id in a `202` | `u32_body.ksy` |
 
     ## Draft states
 
     | Value | State | Final |
     |---|---|---|
     | 1 | `moderating` | |
-    | 2 | `rejected` | yes |
+    | 2 | `rejected` | yes, unless overridden |
     | 3 | `translating` | |
     | 4 | `review` | |
     | 5 | `narrating` | |
-    | 6 | `publishing` | |
-    | 7 | `published` | yes |
-    | 8 | `failed` | |
-    | 9 | `discarded` | yes |
+    | 6 | `listening` | |
+    | 7 | `publishing` | |
+    | 8 | `published` | yes |
+    | 9 | `failed` | |
+    | 10 | `discarded` | yes |
 
-    A story has at most one draft that isn't final.
+    `failed_step` uses the same values, with 0 when the draft isn't failed. A story has at
+    most one draft in progress (in any state that isn't final).
 
-    Error responses carry no body that this document specifies.
+    ## Draft kinds
+
+    | Value | Kind | Created by | Starts at |
+    |---|---|---|---|
+    | 1 | `new` | `POST /drafts` | `moderating` |
+    | 2 | `edit` | `POST /stories/{id}/edit` | `review` |
+    | 3 | `narrate` | `POST /stories/{id}/narrate` | `narrating` |
+
+    An `edit` or `narrate` copy that lacks a language with `translate` 1 starts at
+    `translating` for just those languages instead, then goes to `review`; an approved
+    `narrate` copy then narrates.
+
+    ## Errors
+
+    Every 4xx except 401 carries a one-line English reason as `text/plain`, naming the rule
+    and the field (`tags: unknown id 'rom'`, `story removed`). A 409 for a story with a draft
+    in progress names that draft (`draft in progress: 42`); a revision mismatch names the
+    current revision (`draft changed: revision 7`). A 401 has an empty body. A 500 (SQLite
+    error) has no body.
+
+    Any path not listed here gets a 404, and any other method on a listed path gets a 405.
+    The backend sends no CORS headers.
 servers:
   - url: http://127.0.0.1:8080
     description: Default bind address and port (POSTILLA_BIND, POSTILLA_PORT); TLS is the reverse proxy's job
 tags:
   - name: feed
-    description: What the app reads
-  - name: publish
-    description: Publishing stories whose files are already in R2
+    description: What the learner app reads; public
+  - name: stories
+    description: Authoring on published stories
   - name: drafts
     description: Turning Italian text into a published story
 
@@ -56,28 +98,50 @@ paths:
     get:
       tags: [feed]
       operationId: getFeed
-      summary: Stories published after a cursor
+      summary: Translations published, corrected or removed after a cursor
       description: |
-        Returns one record per story whose cursor is greater than `since`, ascending by
-        cursor. The app stores the last record's `cursor` and sends it next time, and builds
-        download URLs from each record's `id` and `sha256`
-        (`stories/<id>/<sha256>.tilla.gz` and `.opus`).
+        Returns one record per translation in the listed languages whose cursor is greater
+        than `since`, ascending by cursor. Removed translations are returned like any other,
+        `since=0` included. The app builds each `.tilla.gz` URL from a record's `id`, `lang`
+        and `sha256` (`stories/<id>/<lang>/<sha256>.tilla.gz`), and the `.opus` URL from the
+        `.tilla`.
       security: []
       parameters:
         - name: since
           in: query
           required: false
-          description: The newest cursor the app has. Missing counts as 0, which returns every story.
+          description: |
+            The newest cursor the app has, a decimal `u32`. Missing counts as 0, which returns
+            every translation in the listed languages. Any other value gets a 400.
           schema:
             type: integer
             format: int64
             minimum: 0
             maximum: 4294967295
             default: 0
+        - name: lang
+          in: query
+          required: true
+          description: |
+            1 to 4 comma-separated language ids (`it,pt-BR`), each in `language`, with no
+            duplicates and no empty items.
+          style: form
+          explode: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 4
+            uniqueItems: true
+            items:
+              type: string
+              minLength: 1
+              maxLength: 8
+            examples:
+              - [it, pt-BR]
       responses:
         "200":
           description: |
-            `FEED` body, `9 + 52 × count` bytes:
+            `FEED` body ([feed.ksy](formats/feed.ksy)), `9 + 61 × count` bytes:
 
             | Field | Type | Value |
             |---|---|---|
@@ -85,13 +149,15 @@ paths:
             | `version` | `u8` | `1` |
             | `count` | `u32` | Number of records that follow |
 
-            Then `count` records, ascending by `cursor`:
+            Then `count` records of 61 bytes, ascending by `cursor`:
 
             | Field | Type | Value |
             |---|---|---|
             | `id` | `uuid` | Story id |
-            | `sha256` | 32 bytes | sha256 of the story's `.tilla.gz` |
-            | `cursor` | `u32` | The story's cursor |
+            | `lang` | `lang` | The translation's language |
+            | `change` | `u8` | What happened last to that translation: 1 `published` (new or changed) or 2 `removed` |
+            | `sha256` | `sha256` | sha256 of the translation's `.tilla.gz`; all zero when `removed` |
+            | `cursor` | `u32` | The translation's cursor |
 
             When nothing is new, the body is the 9-byte header with `count` 0.
           content:
@@ -99,78 +165,274 @@ paths:
               schema:
                 $ref: "#/components/schemas/Binary"
         "400":
-          description: "`since` isn't a decimal u32"
-    post:
-      tags: [publish]
-      operationId: publishStory
-      summary: Publish or republish a story whose files are already in R2
-      description: |
-        The files must already be in R2 under `stories/<id>/<sha256>.tilla.gz` (and `.opus`
-        when `has_opus` is 1); the server doesn't check that they exist. A new story, or an
-        existing one with a new sha256, takes the next cursor. The same sha256 is a no-op
-        that keeps the cursor.
-      security:
-        - publishToken: []
-      requestBody:
-        required: true
-        description: |
-          `STRY` body, exactly 54 bytes:
+          $ref: "#/components/responses/BadRequest"
+          description: "`since` isn't a decimal `u32`; or `lang` is missing, empty or malformed, has a duplicate, or names an id not in `language`"
+        "500":
+          $ref: "#/components/responses/DatabaseError"
 
-          | Field | Type | Value |
-          |---|---|---|
-          | `magic` | 4 bytes | `STRY` |
-          | `version` | `u8` | `1` |
-          | `id` | `uuid` | Story id |
-          | `sha256` | 32 bytes | sha256 of the `.tilla.gz` |
-          | `has_opus` | `u8` | 1 when the story has a `.opus`, 0 for a story without narration |
-        content:
-          application/octet-stream:
-            schema:
-              $ref: "#/components/schemas/Binary"
+  /stories/{id}:
+    delete:
+      tags: [stories]
+      operationId: removeStory
+      summary: Remove a story
+      description: |
+        Tombstones every translation of the story at once, in one transaction: each row's
+        `change` becomes `removed`, its `sha256` is sent as zeros in the feed, and it gets a
+        new cursor, so a syncing app deletes its copy. Nothing is deleted from the database
+        or from R2. A single translation can't be removed. A removed id stays removed:
+        `POST /drafts`, `/edit` and `/narrate` with it get a 409. Removing a story that is
+        already removed answers 200 and changes nothing (no new cursor). No request body.
+      security:
+        - authorToken: []
+      parameters:
+        - $ref: "#/components/parameters/StoryId"
       responses:
         "200":
-          description: The story's cursor, a bare `u32` (4 bytes)
-          content:
-            application/octet-stream:
-              schema:
-                $ref: "#/components/schemas/U32"
+          $ref: "#/components/responses/Done"
         "400":
-          description: Wrong magic or version, a body that isn't 54 bytes, or `has_opus` not 0 or 1
+          $ref: "#/components/responses/BadRequest"
+          description: "`id` isn't a UUID"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+          description: Unknown story id
+        "409":
+          $ref: "#/components/responses/Conflict"
+          description: "The story has a draft in progress (`draft in progress: 42`); discard it first, or it would republish the story"
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+
+  /stories/{id}/edit:
+    post:
+      tags: [stories]
+      operationId: editStory
+      summary: Start an edit draft from a published story
+      description: |
+        Copies the story's latest published draft (header, and every language's title,
+        subtitle and sentences, with the audio's sha256s, `audio_ms` and sentence times) into
+        a new `edit` draft that starts at `review`. Tags no longer in `tag` are dropped; a
+        genre no longer in `genre` is kept, and `approve` gets a 409 until
+        `PUT /drafts/{draft_id}/header` sets a listed one. No request body.
+      security:
+        - authorToken: []
+      parameters:
+        - $ref: "#/components/parameters/StoryId"
+      responses:
+        "202":
+          $ref: "#/components/responses/DraftCreated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+          description: "`id` isn't a UUID"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+          description: The story id isn't published
+        "409":
+          $ref: "#/components/responses/Conflict"
+          description: "The story was removed (`story removed`), or has a draft in progress (`draft in progress: 42`)"
         "500":
           $ref: "#/components/responses/DatabaseError"
 
   /stories/{id}/narrate:
     post:
-      tags: [drafts]
+      tags: [stories]
       operationId: narrateStory
-      summary: Add narration to a published story
+      summary: Narrate a published story again
       description: |
-        Starts a narration-only draft at `narrating`. The worker downloads the story's current
-        `.tilla.gz`, copies its header and sentences unchanged, then narrates and republishes
-        it. The new `.tilla` has a new sha256, so the story gets a new cursor. A story that
-        already has narration is narrated again, and the new audio replaces the old.
+        For a story whose text hasn't changed. Copies the story's latest published draft like
+        `/edit`, into a new `narrate` draft that starts at `narrating`: it narrates every
+        translation in a language with `target` 1, then stops at `listening`. The new audio
+        replaces the old on publish. If the story lacks a language with `translate` 1, the
+        copy goes through `translating` and `review` for it first, and `approve` then
+        narrates. No request body.
       security:
-        - publishToken: []
+        - authorToken: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          description: Story UUID in its written form
-          schema:
-            type: string
-            format: uuid
-            example: d0159518-99cc-46f0-bef2-b5b6f6f9a76d
+        - $ref: "#/components/parameters/StoryId"
       responses:
         "202":
           $ref: "#/components/responses/DraftCreated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+          description: "`id` isn't a UUID"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
-          description: The story id isn't in the feed
+          $ref: "#/components/responses/NotFound"
+          description: The story id isn't published
         "409":
-          description: The story already has a draft in progress
+          $ref: "#/components/responses/Conflict"
+          description: "The story was removed (`story removed`), or has a draft in progress (`draft in progress: 42`)"
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+
+  /published:
+    get:
+      tags: [stories]
+      operationId: listPublished
+      summary: Every story that has been published, removed ones included
+      description: |
+        So the authoring app can pick a story to edit or remove. Reads each story's latest
+        draft in state `published`, joined with its feed rows.
+      security:
+        - authorToken: []
+      responses:
+        "200":
+          description: |
+            `PUBL` body ([publ.ksy](formats/publ.ksy)):
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `magic` | 4 bytes | `PUBL` |
+            | `version` | `u8` | `1` |
+            | `count` | `u32` | Number of stories that follow |
+
+            Then `count` stories, ascending by id:
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `id` | `uuid` | Story id |
+            | `change` | `u8` | 1 `published` or 2 `removed` |
+            | `level` | `u8` | Level |
+            | `genre` | `str` | Genre id |
+            | `lang_count` | `u8` | Number of translations that follow |
+
+            Then `lang_count` translations, the original included, in `language` order (original first, then ascending by id), each a `lang` and a `title`
+            (`str`).
+          content:
+            application/octet-stream:
+              schema:
+                $ref: "#/components/schemas/Binary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+
+  /genres:
+    get:
+      tags: [feed]
+      operationId: listGenres
+      summary: Every genre, with its name in each language
+      security: []
+      responses:
+        "200":
+          description: |
+            `GNRS` body ([gnrs.ksy](formats/gnrs.ksy)):
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `magic` | 4 bytes | `GNRS` |
+            | `version` | `u8` | `1` |
+            | `count` | `u16` | Number of records that follow |
+
+            Then `count` records, ascending by `id`:
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `id` | `str` | Genre id |
+            | `it` | `str` | Italian name |
+            | `pt_br` | `str` | Brazilian Portuguese name |
+            | `en` | `str` | English name |
+          content:
+            application/octet-stream:
+              schema:
+                $ref: "#/components/schemas/Binary"
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+
+  /tags:
+    get:
+      tags: [feed]
+      operationId: listTags
+      summary: Every tag, with its name in each language
+      security: []
+      responses:
+        "200":
+          description: |
+            `TAGS` body ([tags.ksy](formats/tags.ksy)):
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `magic` | 4 bytes | `TAGS` |
+            | `version` | `u8` | `1` |
+            | `count` | `u16` | Number of records that follow |
+
+            Then `count` records, ascending by `id`:
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `id` | `str` | Tag id |
+            | `it` | `str` | Italian name |
+            | `pt_br` | `str` | Brazilian Portuguese name |
+            | `en` | `str` | English name |
+          content:
+            application/octet-stream:
+              schema:
+                $ref: "#/components/schemas/Binary"
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+
+  /authors:
+    get:
+      tags: [feed]
+      operationId: listAuthors
+      summary: Every author
+      security: []
+      responses:
+        "200":
+          description: |
+            `AUTH` body ([auth.ksy](formats/auth.ksy)):
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `magic` | 4 bytes | `AUTH` |
+            | `version` | `u8` | `1` |
+            | `count` | `u16` | Number of records that follow |
+
+            Then `count` records, ascending by `id`:
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `id` | `str` | Author id |
+            | `name` | `str` | Author name |
+          content:
+            application/octet-stream:
+              schema:
+                $ref: "#/components/schemas/Binary"
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+
+  /languages:
+    get:
+      tags: [feed]
+      operationId: listLanguages
+      summary: Every language
+      security: []
+      responses:
+        "200":
+          description: |
+            `LANG` body ([lang.ksy](formats/lang.ksy)):
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `magic` | 4 bytes | `LANG` |
+            | `version` | `u8` | `1` |
+            | `count` | `u16` | Number of records that follow |
+
+            Then `count` records, ascending by `id`:
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `id` | `str` | Language id |
+            | `name` | `str` | The language's own name |
+            | `target` | `u8` | 1 when the language can be a target, 0 otherwise |
+            | `translate` | `u8` | 1 when stories are translated into it |
+          content:
+            application/octet-stream:
+              schema:
+                $ref: "#/components/schemas/Binary"
         "500":
           $ref: "#/components/responses/DatabaseError"
 
@@ -178,39 +440,57 @@ paths:
     post:
       tags: [drafts]
       operationId: createDraft
-      summary: Start a draft from Italian text
+      summary: Start a new draft from Italian text
       description: |
-        The worker starts `moderating`, then `translating`, and stops at `review` for you.
-        A draft for a story id that is already published counts as a republish.
+        Starts a `new` draft; the worker starts `moderating`. A draft for a story id that is
+        already published counts as a republish: on publish, every changed translation gets
+        a new cursor. A rewrite that adds or removes paragraphs is a new `POST /drafts` with
+        the same id.
       security:
-        - publishToken: []
+        - authorToken: []
       requestBody:
         required: true
         description: |
-          `DNEW` body:
+          `DNEW` body ([dnew.ksy](formats/dnew.ksy)):
 
           | Field | Type | Value |
           |---|---|---|
           | `magic` | 4 bytes | `DNEW` |
           | `version` | `u8` | `1` |
           | `id` | `uuid` | Story id |
-          | `title` | `str` | Title, not empty |
-          | `subtitle` | `str` | Subtitle, not empty |
-          | `level` | `u8` | 1 A1 · 2 A2 · 3 B1 · 4 B2 |
-          | `genre` | `str` | A `genre.id`, not empty |
+          | `title` | `str` | Title |
+          | `subtitle` | `str` | Subtitle |
+          | `level` | `u8` | 1 A1 · 2 A2 · 3 B1 · 4 B2 · 5 C1 · 6 C2 |
+          | `genre` | `str` | A `genre.id` |
+          | `tag_count` | `u16` | Number of tags that follow |
+          | `tags` | `str` × `tag_count` | `tag.id`s |
           | `work` | `str` | Work name; `''` outside a work |
           | `part` | `u16` | Part of the work; 0 outside a work |
-          | `paragraph_count` | `u16` | At least 1 |
+          | `author` | `str` | An `author.id`; `''` for a story written for Postilla |
+          | `adapted` | `u8` | 1 when adapted from `author`'s work, 0 otherwise |
+          | `license` | `str` | SPDX id, `public-domain`, or `LicenseRef-Postilla` |
+          | `paragraph_count` | `u16` | Number of paragraphs that follow |
 
           Then `paragraph_count` paragraphs, in reading order:
 
           | Field | Type | Value |
           |---|---|---|
-          | `sentence_count` | `u16` | At least 1 |
-          | `sentences` | `str` × `sentence_count` | Italian sentences, none empty |
+          | `sentence_count` | `u16` | Number of sentences that follow |
+          | `sentences` | `str` × `sentence_count` | Italian sentences |
 
-          `work` is empty exactly when `part` is 0. The story is at most 20,000 characters
-          (the narration limit). No bytes may follow the last paragraph.
+          The parse rejects with 400 when any of these fail:
+
+          1. The magic is `DNEW` and the version is 1.
+          2. Every length fits in the body, and no bytes are left after the last paragraph.
+          3. Every `str` is valid UTF-8.
+          4. `title`, `subtitle`, `genre` and `license` are not empty; `license` is ASCII;
+             `level` is 1 to 6; `adapted` is 0 or 1.
+          5. `work` is empty exactly when `part` is 0.
+          6. No tag is empty or repeated.
+          7. `adapted` is 1 only when `author` is not empty.
+          8. `paragraph_count` is at least 1, every `sentence_count` is at least 1, and no
+             sentence is empty.
+          9. The story is at most 20,000 characters, the narration limit.
         content:
           application/octet-stream:
             schema:
@@ -219,19 +499,22 @@ paths:
         "202":
           $ref: "#/components/responses/DraftCreated"
         "400":
-          description: The body fails the parse (any rule in the request body description)
+          $ref: "#/components/responses/BadRequest"
+          description: "The body fails the parse (any rule in the request body description), or names an unknown genre, tag or author (`genre: unknown id 'giallo'`)"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
-          description: The story already has a draft in progress
+          $ref: "#/components/responses/Conflict"
+          description: "The story was removed (`story removed`), or has a draft in progress (`draft in progress: 42`)"
         "500":
           $ref: "#/components/responses/DatabaseError"
     get:
       tags: [drafts]
       operationId: listDrafts
       summary: List drafts, optionally in one state
+      description: "`GET /drafts?state=review` lists the drafts waiting for you."
       security:
-        - publishToken: []
+        - authorToken: []
       parameters:
         - name: state
           in: query
@@ -242,7 +525,7 @@ paths:
       responses:
         "200":
           description: |
-            `DLST` body:
+            `DLST` body ([dlst.ksy](formats/dlst.ksy)):
 
             | Field | Type | Value |
             |---|---|---|
@@ -257,29 +540,34 @@ paths:
             | `draft_id` | `u32` | Draft id |
             | `id` | `uuid` | Story id |
             | `state` | `u8` | Current state (see Draft states) |
-            | `title` | `str` | Title |
+            | `kind` | `u8` | 1 `new` · 2 `edit` · 3 `narrate` |
+            | `revision` | `u32` | Current revision |
+            | `title` | `str` | Italian title |
           content:
             application/octet-stream:
               schema:
                 $ref: "#/components/schemas/Binary"
         "400":
+          $ref: "#/components/responses/BadRequest"
           description: Unknown state name
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/DatabaseError"
 
   /drafts/{draft_id}:
     get:
       tags: [drafts]
       operationId: getDraft
-      summary: A draft's state, error, moderation result and sentences
+      summary: A draft's status, header, translations and sentences
       security:
-        - publishToken: []
+        - authorToken: []
       parameters:
         - $ref: "#/components/parameters/DraftId"
       responses:
         "200":
           description: |
-            `DRFT` body:
+            `DRFT` body ([drft.ksy](formats/drft.ksy)):
 
             | Field | Type | Value |
             |---|---|---|
@@ -288,24 +576,44 @@ paths:
             | `draft_id` | `u32` | Draft id |
             | `id` | `uuid` | Story id |
             | `state` | `u8` | Current state (see Draft states) |
+            | `kind` | `u8` | 1 `new` · 2 `edit` · 3 `narrate` |
             | `failed_step` | `u8` | The state that failed, when `state` is `failed`; 0 otherwise |
             | `attempts` | `u8` | Tries made by the current or failed step |
             | `error` | `str` | Stored error; `''` when there is none |
-            | `moderation` | `u16` × 6 | `none`, `homophobic`, `racist`, `sexist`, `religious`, `other_hate`, in thousandths (0 to 1000); all 0 before moderation |
-            | `title` | `str` | Title |
-            | `subtitle` | `str` | Subtitle |
+            | `moderation` | `u16` × 6 | Probabilities of `none`, `homophobic`, `racist`, `sexist`, `religious`, `other_hate`, in thousandths (0 to 1000); all 0 before moderation |
+            | `revision` | `u32` | Current revision |
+            | `title` | `str` | Italian title |
+            | `subtitle` | `str` | Italian subtitle |
             | `level` | `u8` | Level |
             | `genre` | `str` | Genre id |
+            | `tag_count` | `u16` | Number of tags that follow |
+            | `tags` | `str` × `tag_count` | Tag ids |
             | `work` | `str` | Work name |
             | `part` | `u16` | Part |
-            | `paragraph_count` | `u16` | Number of paragraphs that follow |
+            | `author` | `str` | Author id |
+            | `adapted` | `u8` | Adapted |
+            | `license` | `str` | License |
+            | `lang_count` | `u8` | Number of translated languages that follow |
 
-            Then each paragraph: a `sentence_count` (`u16`), followed by that many pairs:
+            Then `lang_count` translated languages, in `language` order (ascending by id; the Italian original has its own fields):
 
             | Field | Type | Value |
             |---|---|---|
-            | `it` | `str` | Italian sentence |
-            | `pt` | `str` | Portuguese sentence; `''` before translation |
+            | `lang` | `lang` | Language |
+            | `title` | `str` | Title in that language; `''` before translation |
+            | `subtitle` | `str` | Subtitle in that language; `''` before translation |
+
+            Then the text:
+
+            | Field | Type | Value |
+            |---|---|---|
+            | `paragraph_count` | `u16` | Number of paragraphs that follow |
+
+            Each paragraph is a `sentence_count` (`u16`) followed by that many sentences. Each
+            sentence is the Italian `str`, then one `str` per translated language, in the
+            order listed above. Sentence counts follow the Italian: a language not yet
+            translated for a sentence (a new draft, a retranslated language, or an edited
+            Italian paragraph waiting for `translating`) carries `''`.
           content:
             application/octet-stream:
               schema:
@@ -314,76 +622,208 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/UnknownDraft"
+        "500":
+          $ref: "#/components/responses/DatabaseError"
 
   /drafts/{draft_id}/translation:
     put:
       tags: [drafts]
       operationId: editTranslation
-      summary: Replace the Portuguese sentences of a draft in review
-      description: The draft stays in `review`.
+      summary: Replace one language's title, subtitle and sentences
+      description: |
+        Needs the draft in `review`, and it stays there. The Italian can be edited only on an
+        `edit` draft: it must keep `paragraph_count`, but may change a paragraph's sentence
+        count; the draft then goes to `translating` for just those paragraphs, in every other
+        language, keeping every edit elsewhere, and comes back to `review`. The draft's
+        revision goes up by one.
       security:
-        - publishToken: []
+        - authorToken: []
       parameters:
         - $ref: "#/components/parameters/DraftId"
       requestBody:
         required: true
         description: |
-          `TRNS` body:
+          `TRNS` body ([trns.ksy](formats/trns.ksy)):
 
           | Field | Type | Value |
           |---|---|---|
           | `magic` | 4 bytes | `TRNS` |
           | `version` | `u8` | `1` |
+          | `lang` | `lang` | The language being replaced: the draft's original (`it`) or one of its translated languages |
+          | `revision` | `u32` | The revision this edit is based on |
+          | `title` | `str` | Title, not empty |
+          | `subtitle` | `str` | Subtitle, not empty |
           | `paragraph_count` | `u16` | Must equal the draft's |
 
-          Then each paragraph: a `sentence_count` (`u16`, which must equal the draft's for that
-          paragraph), followed by that many `str` Portuguese sentences, none empty.
+          Then each paragraph: a `sentence_count` (`u16`), followed by that many `str`
+          sentences, none empty. No bytes may be left after the last paragraph. A translation
+          must keep every paragraph's sentence count equal to the Italian's.
         content:
           application/octet-stream:
             schema:
               $ref: "#/components/schemas/Binary"
       responses:
         "200":
-          description: Saved. No body.
+          $ref: "#/components/responses/Done"
         "400":
-          description: The body fails the parse, or a paragraph or sentence count doesn't match the draft
+          $ref: "#/components/responses/BadRequest"
+          description: The body fails the parse; `lang` is neither the original nor a translated language of the draft; `paragraph_count` isn't the draft's; or a translation's sentence count differs from the Italian's
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/UnknownDraft"
         "409":
-          description: The draft isn't in `review`
+          $ref: "#/components/responses/Conflict"
+          description: "The draft isn't in `review`; Italian on a draft that isn't an `edit` draft; or a `revision` that isn't the draft's (`draft changed: revision 7`)"
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+
+  /drafts/{draft_id}/header:
+    put:
+      tags: [drafts]
+      operationId: editHeader
+      summary: Replace the story-level fields
+      description: |
+        Needs the draft in `review`. Title and subtitle are edited through
+        `PUT /drafts/{draft_id}/translation`. The draft's revision goes up by one.
+      security:
+        - authorToken: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      requestBody:
+        required: true
+        description: |
+          `HEDR` body ([hedr.ksy](formats/hedr.ksy)):
+
+          | Field | Type | Value |
+          |---|---|---|
+          | `magic` | 4 bytes | `HEDR` |
+          | `version` | `u8` | `1` |
+          | `revision` | `u32` | The revision this edit is based on |
+          | `level` | `u8` | 1 to 6 |
+          | `genre` | `str` | A `genre.id` |
+          | `tag_count` | `u16` | Number of tags that follow |
+          | `tags` | `str` × `tag_count` | `tag.id`s |
+          | `work` | `str` | Work name; `''` outside a work |
+          | `part` | `u16` | Part of the work; 0 outside a work |
+          | `author` | `str` | An `author.id` or `''` |
+          | `adapted` | `u8` | 0 or 1 |
+          | `license` | `str` | License |
+
+          The parse applies the header rules of `POST /drafts` (4 to 7, without `title` and
+          `subtitle`), and no bytes may be left after `license`.
+        content:
+          application/octet-stream:
+            schema:
+              $ref: "#/components/schemas/Binary"
+      responses:
+        "200":
+          $ref: "#/components/responses/Done"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+          description: The body fails the parse, or names an unknown genre, tag or author
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownDraft"
+        "409":
+          $ref: "#/components/responses/Conflict"
+          description: "The draft isn't in `review`, or a `revision` that isn't the draft's (`draft changed: revision 7`)"
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+
+  /drafts/{draft_id}/audio:
+    get:
+      tags: [drafts]
+      operationId: getDraftAudio
+      summary: A narrated language's audio, to listen to at `listening`
+      description: |
+        Answers in any state where the draft holds that language's audio: at `listening`,
+        and at `review` or `failed` after it.
+      security:
+        - authorToken: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+        - name: lang
+          in: query
+          required: true
+          description: A narrated language of the draft (`it`)
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 8
+            examples: [it]
+      responses:
+        "200":
+          description: The language's `.opus` (Ogg Opus, 16 kbps, mono)
+          content:
+            audio/ogg:
+              schema:
+                type: string
+                contentMediaType: audio/ogg
+        "400":
+          $ref: "#/components/responses/BadRequest"
+          description: "`lang` is missing or isn't a language with `target` 1"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownDraft"
+          description: "Unknown draft, or the draft holds no audio for `lang` (`no audio: it`)"
+        "500":
+          $ref: "#/components/responses/DatabaseError"
 
   /drafts/{draft_id}/retranslate:
     post:
       tags: [drafts]
       operationId: retranslateDraft
-      summary: Discard the Portuguese and translate again
-      description: Needs the draft in `review`. It goes back to `translating`.
+      summary: Discard one language and translate it again
+      description: |
+        Needs the draft in `review`. Discards that language only; the draft goes back to
+        `translating`, and the worker redoes only that language. No request body.
       security:
-        - publishToken: []
+        - authorToken: []
       parameters:
         - $ref: "#/components/parameters/DraftId"
+        - name: lang
+          in: query
+          required: true
+          description: A language with `translate` 1 that the draft has (`pt-BR`)
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 8
+            examples: [pt-BR]
       responses:
         "200":
           $ref: "#/components/responses/Done"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+          description: "`lang` is missing, `it`, or any id that isn't a language with `translate` 1 that the draft has"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/UnknownDraft"
         "409":
+          $ref: "#/components/responses/Conflict"
           description: The draft isn't in `review`
+        "500":
+          $ref: "#/components/responses/DatabaseError"
 
   /drafts/{draft_id}/approve:
     post:
       tags: [drafts]
       operationId: approveDraft
-      summary: Freeze the translation and start narration
+      summary: Freeze every translation and go on to narration or publishing
       description: |
-        Needs the draft in `review`. It moves to `narrating`, then `publishing`, and the
-        story takes the next cursor when publishing finishes.
+        Needs the draft in `review`. Freezes every translation at once and answers at once.
+        When the Italian of an `edit` draft changed, the draft first goes to `moderating`,
+        where the worker moderates the whole Italian text again; if that fails, the draft
+        goes back to `review` with the new scores and an error naming the change. Then it
+        starts `narrating` when a narrated language's sentences changed
+        (always, for a `new` or `narrate` draft), and `publishing` otherwise. The cursors increase only when
+        `publishing` finishes. No request body.
       security:
-        - publishToken: []
+        - authorToken: []
       parameters:
         - $ref: "#/components/parameters/DraftId"
       responses:
@@ -394,7 +834,109 @@ paths:
         "404":
           $ref: "#/components/responses/UnknownDraft"
         "409":
-          description: The draft isn't in `review`
+          $ref: "#/components/responses/Conflict"
+          description: The draft isn't in `review`, or its genre is no longer in `genre`
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+
+  /drafts/{draft_id}/override:
+    post:
+      tags: [drafts]
+      operationId: overrideDraft
+      summary: Override a moderation false positive
+      description: |
+        Moves a `rejected` draft on to `translating`, or approves a draft held at `review`
+        by re-moderation anyway. The scores stay stored, so an override is visible later in
+        `GET /drafts/{draft_id}`. No request body.
+      security:
+        - authorToken: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Done"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownDraft"
+        "409":
+          $ref: "#/components/responses/Conflict"
+          description: "The draft is neither `rejected` nor held at `review` by re-moderation; or it is `rejected` and the story has another draft in progress (`draft in progress: 42`)"
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+
+  /drafts/{draft_id}/publish:
+    post:
+      tags: [drafts]
+      operationId: publishDraft
+      summary: Publish a draft you have listened to
+      description: Needs the draft in `listening`. Starts `publishing`. No request body.
+      security:
+        - authorToken: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Done"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownDraft"
+        "409":
+          $ref: "#/components/responses/Conflict"
+          description: The draft isn't in `listening`
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+
+  /drafts/{draft_id}/renarrate:
+    post:
+      tags: [drafts]
+      operationId: renarrateDraft
+      summary: Discard the audio and narrate again
+      description: Needs the draft in `listening`. Discards the audio and goes back to `narrating`. No request body.
+      security:
+        - authorToken: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Done"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownDraft"
+        "409":
+          $ref: "#/components/responses/Conflict"
+          description: The draft isn't in `listening`
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+
+  /drafts/{draft_id}/review:
+    post:
+      tags: [drafts]
+      operationId: reviewDraft
+      summary: Go back from listening to review
+      description: |
+        Needs the draft in `listening`. Takes it back to `review` with every edit, the audio
+        and the sentence times kept. On the next approve, narration reruns only for a
+        narrated language whose sentences changed (then `listening` again); otherwise the
+        draft goes straight to `publishing`. No request body.
+      security:
+        - authorToken: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Done"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownDraft"
+        "409":
+          $ref: "#/components/responses/Conflict"
+          description: The draft isn't in `listening`
+        "500":
+          $ref: "#/components/responses/DatabaseError"
 
   /drafts/{draft_id}/resume:
     post:
@@ -403,9 +945,10 @@ paths:
       summary: Rerun the step that failed
       description: |
         Needs the draft in `failed`. The failed step reruns from scratch with a fresh try
-        count; work from earlier steps is kept.
+        count; work from earlier steps is kept, and a language that finished translating
+        stays done. No request body.
       security:
-        - publishToken: []
+        - authorToken: []
       parameters:
         - $ref: "#/components/parameters/DraftId"
       responses:
@@ -416,7 +959,10 @@ paths:
         "404":
           $ref: "#/components/responses/UnknownDraft"
         "409":
+          $ref: "#/components/responses/Conflict"
           description: The draft isn't in `failed`
+        "500":
+          $ref: "#/components/responses/DatabaseError"
 
   /drafts/{draft_id}/discard:
     post:
@@ -424,10 +970,11 @@ paths:
       operationId: discardDraft
       summary: Drop a draft so the story can get a new one
       description: |
-        Needs the draft in `review` or `failed`. It moves to `discarded` (final) and stays as
-        history. A draft a worker is running can't be discarded until it stops.
+        Needs the draft in `review`, `listening` or `failed`. It moves to `discarded` (final)
+        and stays as history; its audio BLOBs are dropped. A draft that a worker is running
+        can't be discarded until it stops. No request body.
       security:
-        - publishToken: []
+        - authorToken: []
       parameters:
         - $ref: "#/components/parameters/DraftId"
       responses:
@@ -438,16 +985,22 @@ paths:
         "404":
           $ref: "#/components/responses/UnknownDraft"
         "409":
-          description: The draft isn't in `review` or `failed`
+          $ref: "#/components/responses/Conflict"
+          description: The draft isn't in `review`, `listening` or `failed`
+        "500":
+          $ref: "#/components/responses/DatabaseError"
 
 components:
   securitySchemes:
-    publishToken:
+    authorToken:
       type: http
       scheme: bearer
       description: |
-        The token in env `POSTILLA_PUBLISH_TOKEN`, compared in constant time. A missing or
-        wrong token gets a 401 before the body is read.
+        The token in env `POSTILLA_AUTHOR_TOKEN`, compared in constant time. A missing or
+        wrong token gets a 401 with an empty body, before the body is read. Every endpoint
+        under `/drafts`, `POST /stories/{id}/edit`, `POST /stories/{id}/narrate`,
+        `DELETE /stories/{id}` and `GET /published` need it; `GET /stories`, `GET /genres`,
+        `GET /tags`, `GET /authors` and `GET /languages` are public.
   parameters:
     DraftId:
       name: draft_id
@@ -459,6 +1012,15 @@ components:
         format: int64
         minimum: 0
         maximum: 4294967295
+    StoryId:
+      name: id
+      in: path
+      required: true
+      description: Story UUID in its written form
+      schema:
+        type: string
+        format: uuid
+        examples: [d0159518-99cc-46f0-bef2-b5b6f6f9a76d]
   schemas:
     Binary:
       type: string
@@ -470,9 +1032,17 @@ components:
       minLength: 4
       maxLength: 4
       description: A bare big-endian `u32`, 4 bytes, no magic or version
+    Reason:
+      type: string
+      description: One line of English naming the rule and the field
+      examples:
+        - "tags: unknown id 'rom'"
+        - story removed
+        - "draft in progress: 42"
+        - "draft changed: revision 7"
     StateName:
       type: string
-      enum: [moderating, rejected, translating, review, narrating, publishing, published, failed, discarded]
+      enum: [moderating, rejected, translating, review, narrating, listening, publishing, published, failed, discarded]
   responses:
     DraftCreated:
       description: Draft created. The body is the new draft id, a bare `u32` (4 bytes).
@@ -482,9 +1052,31 @@ components:
             $ref: "#/components/schemas/U32"
     Done:
       description: Done. No body.
+    BadRequest:
+      description: The request breaks a rule; the body names it
+      content:
+        text/plain:
+          schema:
+            $ref: "#/components/schemas/Reason"
     Unauthorized:
-      description: Missing or wrong bearer token
+      description: Missing or wrong bearer token. Empty body.
+    NotFound:
+      description: Not found; the body says what
+      content:
+        text/plain:
+          schema:
+            $ref: "#/components/schemas/Reason"
     UnknownDraft:
       description: Unknown draft id
+      content:
+        text/plain:
+          schema:
+            $ref: "#/components/schemas/Reason"
+    Conflict:
+      description: The request conflicts with the stored state; the body names the rule
+      content:
+        text/plain:
+          schema:
+            $ref: "#/components/schemas/Reason"
     DatabaseError:
-      description: SQLite error
+      description: SQLite error. No body.
