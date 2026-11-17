@@ -1,6 +1,6 @@
 # `.tilla` format
 
-One `.tilla` holds one translation of one story: its header, then its paragraphs. The backend's worker is the only writer; the learner app is the reader. The file is stored gzipped as `stories/<id>/<lang>/<sha256>.tilla.gz` in the public R2 bucket, where `sha256` is the hash of the `.gz` (see [Files in R2](specification.md#files-in-r2)). The gzip is deterministic: mtime 0, no file name, OS byte 255, and a fixed compression level and library, so the same `.tilla` always gives the same `.gz` and sha256. An edit that leaves a translation's content unchanged therefore leaves its key and cursor alone, and no app downloads it again. Machine-readable layout: [formats/tilla.ksy](formats/tilla.ksy).
+One `.tilla` holds one translation of one story: its header, then its paragraphs. This repo's CLI (`postilla publish`) is the only writer; the learner app is the reader. The file is stored gzipped as `stories/<id>/<lang>/<sha256>.tilla.gz` in the public R2 bucket, where `sha256` is the hash of the `.gz` (see [Files in R2](specification.md#files-in-r2)). The gzip is deterministic: mtime 0, no file name, OS byte 255, and a fixed compression level and library, so the same `.tilla` always gives the same `.gz` and sha256. An edit that leaves a translation's content unchanged therefore leaves its key and cursor alone, and no app downloads it again. Machine-readable layout: [formats/tilla.ksy](formats/tilla.ksy).
 
 Status: **draft**, recreated from what the backend docs recorded after the original TILLA.md was lost.
 
@@ -39,7 +39,7 @@ Status: **draft**, recreated from what the backend docs recorded after the origi
 | `opus_size` | `u32` | Bytes of the `.opus`; 0 without narration |
 | `paragraph_count` | `u16` | Number of paragraphs that follow |
 
-The story-level fields (`original`, `level`, `genre`, tags, `work`, `part`, `author`, `adapted`, `license`) are the same in every translation of a story; the worker writes them from the same draft.
+The story-level fields (`original`, `level`, `genre`, tags, `work`, `part`, `author`, `adapted`, `license`) are the same in every translation of a story; `postilla publish` writes them from the same `story.json`.
 
 ## Paragraphs
 
