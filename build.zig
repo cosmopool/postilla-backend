@@ -54,13 +54,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{.{ .name = "server", .module = server_mod }},
     });
-    // `tilla` reaches SQLite through `server.db`. A file belongs to one module and
-    // `wire.zig` is `server`'s, so `tilla` imports its own copy.
+    // `tilla` reaches SQLite and the wire types through `server.db` and `server.wire`.
     const tilla = b.createModule(.{ .root_source_file = b.path("src/tilla.zig"), .imports = &.{
         .{ .name = "c", .module = c_mod },
         .{ .name = "server", .module = server_mod },
         .{ .name = "words", .module = words },
-        .{ .name = "wire", .module = b.createModule(.{ .root_source_file = b.addWriteFiles().addCopyFile(b.path("src/wire.zig"), "wire.zig") }) },
     } });
     const test_step = b.step("test", "Run the integration tests");
     // The configure phase is cached: without this, a file added to test/ is ignored
