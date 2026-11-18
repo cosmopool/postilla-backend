@@ -187,7 +187,7 @@ fn publish(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, fol
 
     const dict_env = env.get("POSTILLA_DICT_DIR") orelse "";
     const dict_dir = if (dict_env.len > 0) dict_env else "./dict";
-    cwd.createDirPath(io, dict_dir) catch |err| return fail(w, "dict: {t}", .{err});
+    cwd.createDirPath(io, dict_dir) catch |err| if (err != error.NotDir) return fail(w, "dict: {t}", .{err});
     const dict = try a.dupeSentinel(u8, client.dict(io, a, dict_dir) catch |err| return fail(w, "dict: {t}", .{err}), 0);
     var uploads: std.ArrayList([2][]const u8) = .empty;
     var body: wire.Writer = .{ .buf = try a.alloc(u8, 22 + 40 * inputs.items.len) };
