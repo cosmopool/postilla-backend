@@ -1,0 +1,18 @@
+[
+  {
+    "stage": "build",
+    "step": "done",
+    "base": "d0857375c2d1fd111aa77fe910891d5043fed9aa",
+    "added": 134,
+    "removed": 8,
+    "new_files": 0,
+    "new_public_symbols": 1,
+    "budget": {
+      "added": null,
+      "new_files": null,
+      "new_public_symbols": null
+    },
+    "exceeded": [],
+    "within_budget": true
+  }
+]
