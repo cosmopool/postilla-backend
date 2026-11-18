@@ -37,7 +37,21 @@ pub fn build(b: *std.Build) void {
     const c_mod = c.createModule();
 
     const server_mod = module(b, "src/server.zig", target, optimize, c_mod, sqlite_dir);
-    const cli_mod = module(b, "src/cli.zig", target, optimize, c_mod, sqlite_dir);
+    // `tilla` reaches SQLite and the wire types through `server.db` and `server.wire`.
+    const tilla = b.createModule(.{ .root_source_file = b.path("src/tilla.zig"), .imports = &.{
+        .{ .name = "c", .module = c_mod },
+        .{ .name = "server", .module = server_mod },
+        .{ .name = "words", .module = words },
+    } });
+    // A file belongs to one module, so `outbound.zig` is its own, imported by that name.
+    const outbound = b.createModule(.{ .root_source_file = b.path("src/outbound.zig") });
+    const r2 = b.createModule(.{ .root_source_file = b.path("src/r2.zig"), .imports = &.{.{ .name = "outbound.zig", .module = outbound }} });
+    const cli_mod = b.createModule(.{ .root_source_file = b.path("src/cli.zig"), .target = target, .optimize = optimize, .imports = &.{
+        .{ .name = "server", .module = server_mod },
+        .{ .name = "tilla", .module = tilla },
+        .{ .name = "r2", .module = r2 },
+        .{ .name = "outbound.zig", .module = outbound },
+    } });
 
     const server_exe = b.addExecutable(.{ .name = "postilla-server", .root_module = server_mod });
     const cli_exe = b.addExecutable(.{ .name = "postilla", .root_module = cli_mod });
@@ -54,13 +68,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{.{ .name = "server", .module = server_mod }},
     });
-    // `tilla` reaches SQLite and the wire types through `server.db` and `server.wire`.
-    const tilla = b.createModule(.{ .root_source_file = b.path("src/tilla.zig"), .imports = &.{
-        .{ .name = "c", .module = c_mod },
-        .{ .name = "server", .module = server_mod },
-        .{ .name = "words", .module = words },
-    } });
-    const r2 = b.createModule(.{ .root_source_file = b.path("src/r2.zig") });
     const test_step = b.step("test", "Run the integration tests");
     // The configure phase is cached: without this, a file added to test/ is ignored
     // until the cache is cleared.
@@ -85,6 +92,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "words", .module = words },
                 .{ .name = "tilla", .module = tilla },
                 .{ .name = "r2", .module = r2 },
+                .{ .name = "cli", .module = cli_mod },
             },
         }) });
         if (coverage) {

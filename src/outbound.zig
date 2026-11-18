@@ -22,6 +22,8 @@ pub fn request(io: Io, a: Allocator, retry: Retry, method: std.http.Method, url:
     var client: std.http.Client = .{ .allocator = a, .io = io };
     defer client.deinit();
     const uri = try std.Uri.parse(url);
+    // Each try sends its own copy: a cut send can write into the buffer it sends.
+    const copy = try a.alloc(u8, body.len);
     var n: usize = 0;
     while (true) : (n += 1) {
         // The client has no timeouts: the try is a task, canceled when it hasn't connected
@@ -29,7 +31,8 @@ pub fn request(io: Io, a: Allocator, retry: Retry, method: std.http.Method, url:
         var events: [2]Io.Event = .{ .unset, .unset };
         var got: []u8 = "";
         var wait: u64 = retry.waits_ms[@min(n, 2)];
-        var task = try io.concurrent(send, .{ &client, method, uri, headers, body, &events, &got, &wait });
+        @memcpy(copy, body);
+        var task = try io.concurrent(send, .{ &client, method, uri, headers, copy, &events, &got, &wait });
         events[0].waitTimeout(io, .{ .duration = .{ .raw = .fromMilliseconds(retry.connect_timeout_ms), .clock = .awake } }) catch {};
         if (events[0].isSet()) events[1].waitTimeout(io, .{ .duration = .{ .raw = .fromMilliseconds(retry.idle_timeout_ms), .clock = .awake } }) catch {};
         if (task.cancel(io)) |status| {
@@ -45,14 +48,13 @@ pub fn request(io: Io, a: Allocator, retry: Retry, method: std.http.Method, url:
 
 /// One try: sets `events[0]` once connected and both when done, the body into `got`, and a
 /// 429's or 503's Retry-After into `wait`.
-fn send(client: *std.http.Client, method: std.http.Method, uri: std.Uri, headers: []const std.http.Header, body: []const u8, events: *[2]Io.Event, got: *[]u8, wait: *u64) !std.http.Status {
+fn send(client: *std.http.Client, method: std.http.Method, uri: std.Uri, headers: []const std.http.Header, body: []u8, events: *[2]Io.Event, got: *[]u8, wait: *u64) !std.http.Status {
     defer for (events) |*e| e.set(client.io);
     var req = try client.request(method, uri, .{ .extra_headers = headers });
     defer req.deinit();
     errdefer req.connection.?.closing = true;
     events[0].set(client.io);
-    // Only read: `sendBodyComplete` sends the buffer it is given as the body.
-    try req.sendBodyComplete(@constCast(body));
+    try req.sendBodyComplete(body);
     var response = try req.receiveHead(&.{});
     var it = response.head.iterateHeaders();
     while (it.next()) |h| {
