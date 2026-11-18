@@ -267,28 +267,30 @@ fn publish(request: *std.http.Server.Request, d: db.Db) !void {
     try (try request.readerExpectContinue(&.{})).readSliceAll(body);
     var r: wire.Reader = .{ .buf = body };
     r.header("STRY") catch |err| return reason(request, .bad_request, if (err == error.BadMagic) "body: bad magic\n" else if (err == error.BadVersion) "body: bad version\n" else "body: wrong length\n");
-    if (body.len < 22 or body[21] == 0 or body.len != 22 + 40 * @as(usize, body[21])) return reason(request, .bad_request, "body: wrong length\n");
-    const n = body[21];
+    const id = r.storyId() catch return reason(request, .bad_request, "body: wrong length\n");
+    const n = r.int(u8) catch 0;
+    if (n == 0 or body.len != 22 + 40 * @as(usize, n)) return reason(request, .bad_request, "body: wrong length\n");
     var message: [128]u8 = undefined; // names a language id: at most 8 characters
     var original = false;
-    for (0..n) |i| {
-        const l = body[22 + 40 * i ..][0..8];
-        r = .{ .buf = l };
-        _ = r.lang() catch return reason(request, .bad_request, "lang: empty or not ASCII\n");
-        for (0..i) |j| if (std.mem.eql(u8, body[22 + 40 * j ..][0..8], l))
-            return reason(request, .bad_request, try std.fmt.bufPrint(&message, "lang: repeated id '{s}'\n", .{std.mem.sliceTo(l, 0)}));
-        original = original or std.mem.eql(u8, std.mem.sliceTo(l, 0), "it");
+    var langs: [255]wire.Lang = undefined;
+    var hashes: [255][]const u8 = undefined;
+    for (langs[0..n], hashes[0..n], 0..) |*l, *h, i| {
+        l.* = r.lang() catch return reason(request, .bad_request, "lang: empty or not ASCII\n");
+        h.* = try r.bytes(32);
+        for (langs[0..i]) |p| if (std.mem.eql(u8, &p.bytes, &l.bytes))
+            return reason(request, .bad_request, try std.fmt.bufPrint(&message, "lang: repeated id '{s}'\n", .{l.text()}));
+        original = original or std.mem.eql(u8, l.text(), "it");
     }
     if (!original) return reason(request, .bad_request, "lang: no 'it'\n");
     try d.exec("BEGIN IMMEDIATE");
     defer if (c.sqlite3_get_autocommit(d.handle) == 0) d.exec("ROLLBACK") catch {};
     const rows = try d.prepare("SELECT lang, change FROM story WHERE id = ?1");
     defer _ = c.sqlite3_finalize(rows.handle);
-    _ = c.sqlite3_bind_blob(rows.handle, 1, body[5..].ptr, 16, null);
+    _ = c.sqlite3_bind_blob(rows.handle, 1, &id.bytes, 16, null);
     while (try rows.step()) {
         if (c.sqlite3_column_int(rows.handle, 1) == 2) return reason(request, .conflict, "story removed\n");
-        for (0..n) |i| {
-            if (std.mem.eql(u8, std.mem.sliceTo(body[22 + 40 * i ..][0..8], 0), rows.bytes(0))) break;
+        for (langs[0..n]) |*l| {
+            if (std.mem.eql(u8, l.text(), rows.bytes(0))) break;
         } else return reason(request, .conflict, try std.fmt.bufPrint(&message, "{s}: published, missing from body\n", .{rows.bytes(0)}));
     }
     // An unknown id selects no `language` row, so it inserts and returns nothing.
@@ -299,12 +301,11 @@ fn publish(request: *std.http.Server.Request, d: db.Db) !void {
         \\  cursor = iif(sha256 = excluded.sha256, cursor, excluded.cursor) RETURNING 1
     );
     defer _ = c.sqlite3_finalize(upsert.handle);
-    _ = c.sqlite3_bind_blob(upsert.handle, 1, body[5..].ptr, 16, null);
-    for (0..n) |i| {
-        const t = body[22 + 40 * i ..][0..40];
-        const l = std.mem.sliceTo(t[0..8], 0);
+    _ = c.sqlite3_bind_blob(upsert.handle, 1, &id.bytes, 16, null);
+    for (langs[0..n], hashes[0..n]) |*lang, hash| {
+        const l = lang.text();
         _ = c.sqlite3_bind_text(upsert.handle, 2, l.ptr, @intCast(l.len), null);
-        _ = c.sqlite3_bind_blob(upsert.handle, 3, t[8..].ptr, 32, null);
+        _ = c.sqlite3_bind_blob(upsert.handle, 3, hash.ptr, 32, null);
         if (!try upsert.step()) return reason(request, .bad_request, try std.fmt.bufPrint(&message, "lang: unknown id '{s}'\n", .{l}));
         _ = c.sqlite3_reset(upsert.handle);
     }
