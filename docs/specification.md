@@ -164,9 +164,9 @@ Every 4xx except 401 carries a one-line English reason as `text/plain`, naming t
 
 ### `GET /stories?since=<cursor>&lang=<ids>`
 
-`since` is a decimal `u32`. When it is missing it counts as 0, which returns every translation in the listed languages. Any other value gets a 400.
+`since` is a decimal `u32`: 1 to 10 ASCII digits, leading zeros allowed. When it is missing it counts as 0, which returns every translation in the listed languages. Any other value (empty, signed, a space or any other byte) gets a 400 `since: not a u32`.
 
-`lang` is required: 1 to 4 comma-separated language ids (`it,pt-BR`), each in `language`, with no duplicates and no empty items. A missing, empty or malformed `lang`, or an id not in `language`, gets a 400.
+`lang` is required: 1 to 4 comma-separated language ids (`it,pt-BR`), each in `language` (compared byte for byte), with no duplicates and no empty items. The 400 reasons are `lang: missing`, `lang: empty id`, `lang: more than 4 ids`, `lang: duplicate id 'it'` and `lang: unknown id 'fr'`. Unknown parameters are ignored; a repeated `since` or `lang` gets a 400 `since: repeated` or `lang: repeated`.
 
 The response is `200`, `Content-Type: application/octet-stream`:
 
@@ -477,7 +477,7 @@ BEGIN SELECT RAISE(ABORT, 'language ids are permanent'); END;
 
 A `POST /stories` runs in one `BEGIN IMMEDIATE` transaction: read the story's current rows (a removed story or a missing published translation stops it here), then, for each translation whose sha256 differs or whose row is new, read `coalesce(max(cursor), 0) + 1` and upsert. A removal runs the same way, setting `change` to 2 and a new cursor on every row of the story. The write lock keeps two concurrent publishes from taking the same cursor.
 
-Startup creates the schema and inserts the initial rows with `INSERT OR IGNORE`, so a fresh `postilla.db` works with no manual step. Later rows are added by hand with SQL.
+Startup creates the schema and inserts the initial rows with `INSERT OR IGNORE`, so a fresh `postilla.db` works with no manual step, and a row edited by hand keeps its edit across restarts. Later rows are added by hand with SQL. Startup sets `PRAGMA user_version = 1`, the schema version, and refuses to start (logged, exit 1) on a database whose `user_version` is above 1.
 
 | Table | Initial rows |
 |---|---|
@@ -522,7 +522,7 @@ Everything comes from env, read and checked once at startup. A missing required 
 
 - A self-contained Zig project (Zig 0.17), with its own `build.zig` and `build.zig.zon`. `zig build` makes both executables into `zig-out/bin/`, and they share source files in `src/`: `server.zig` and `cli.zig` are the two entry points, `wire.zig` the binary encoding every body shares, `db.zig` the SQLite wrapper.
 - SQLite is the amalgamation (3.53.2), a `build.zig.zon` dependency by URL and hash, compiled in multi-thread mode (`SQLITE_THREADSAFE=2`): every thread opens its own connection, and no connection is shared. Both executables link it: the server for `postilla.db`, the CLI to read `dict.db`.
-- **`postilla-server`:** every connection runs as its own concurrent task on `std.Io.Threaded`, so one OS thread per connection, on `std.http.Server`. It closes a connection after a response when the request isn't keep-alive. Each connection opens its own SQLite connection; the database runs in WAL mode (`synchronous = NORMAL`) with a 5 s busy timeout, so readers never wait on a publish and a second writer waits for the first instead of failing. It makes no outbound calls.
+- **`postilla-server`:** every connection runs as its own concurrent task on `std.Io.Threaded`, so one OS thread per connection, on `std.http.Server`. It closes a connection after a response when the request isn't keep-alive, and after 30 s with no request. A malformed request head, or one over the 8 KiB head buffer, gets a 400 `bad request head` and the connection closes. Each connection opens its own SQLite connection; the database runs in WAL mode (`synchronous = NORMAL`) with a 5 s busy timeout, so readers never wait on a publish and a second writer waits for the first instead of failing. It makes no outbound calls.
 - **`words`:** `src/words.zig`, the word rule, the normalization and the lookup chain ([tilla.md, Words](tilla.md#words)), with no dependencies. `build.zig` exports it as a module, so postilla-content imports the same code through a `build.zig.zon` dependency on this repo; SQLite is a lazy dependency, so importing `words` doesn't fetch it. `zig build dart` writes the app's normalization table (`zig-out/dart/words_norm.dart`) from the same source.
 - **`postilla`:** one process per command, single-threaded. It vendors libopus, libopusenc and libFLAC, makes HTTPS client calls to OpenCode, Speechify, R2 and the server, and signs its R2 uploads and downloads with SigV4.
 

@@ -6,8 +6,9 @@ meta:
     - postilla_enums
 doc: |
   Translations in the requested languages published, corrected or removed after the
-  requested cursor, ascending by cursor. The last record's `cursor` is the value the app
-  sends next time. Removed translations are listed like any other, `since=0` included.
+  requested cursor, ascending by cursor. Which cursor the app sends next time is in
+  app-handoff.md, §2 Syncing. Removed translations are listed like any other, `since=0`
+  included.
   See specification.md, `GET /stories`.
 doc-ref: ../specification.md
 seq:
