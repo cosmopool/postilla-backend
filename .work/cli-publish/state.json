@@ -3,10 +3,10 @@
   "branch": "work/cli-publish",
   "jira": "",
   "base": "aacef22ecee1528252e039b27342be19877fcdc7",
-  "stage": "verify",
-  "step": "round-2",
-  "round": 2,
-  "commit": "114190222b8c0a88135a9c45a4c328c6ff0ae896",
+  "stage": "bench",
+  "step": "done",
+  "round": null,
+  "commit": "6c29f45961b1996dc14516159400db27249d995d",
   "budget": {
     "added": 450,
     "newFiles": 0,
@@ -56,6 +56,12 @@
       "step": "round-2",
       "round": 2,
       "commit": "114190222b8c0a88135a9c45a4c328c6ff0ae896"
+    },
+    {
+      "stage": "bench",
+      "step": "done",
+      "round": null,
+      "commit": "6c29f45961b1996dc14516159400db27249d995d"
     }
   ],
   "verify": {
