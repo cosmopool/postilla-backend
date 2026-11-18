@@ -1,0 +1,34 @@
+== apply
+== generate
+== dependencies
+== analyze
+== test
+test
++- run test stderr
+[db] (warn): unable to open database file
+[db] (warn): file is not a database
+[db] (warn): no such table: form
+failed command: ./.zig-cache/o/fbcf5151804065a73ddc22ed5031a80b/test --cache-dir=./.zig-cache --seed=0xb50ac856 --listen=-
+
+test
++- run test stderr
+[db] (warn): read-only
+[db] (warn): read-only
+[db] (warn): read-only
+[db] (warn): read-only
+[db] (warn): read-only
+[db] (warn): read-only
+failed command: ./.zig-cache/o/5bf07886e859ff7c37af0c3bf93738e4/test --cache-dir=./.zig-cache --seed=0xb50ac856 --listen=-
+
+test
++- run test stderr
+[db] (warn): language ids are permanent
+[db] (warn): language ids are permanent
+[db] (warn): author ids are permanent
+[db] (warn): author ids are permanent
+[db] (warn): no such table: story
+[db] (warn): no such table: tag
+[db] (warn): CHECK constraint failed: user_version <= 1
+[db] (warn): unable to open database file
+failed command: ./.zig-cache/o/fd2081dd0048c100b842775fc5f4a83a/test --cache-dir=./.zig-cache --seed=0xb50ac856 --listen=-
+

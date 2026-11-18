@@ -1,0 +1,422 @@
+diff --git a/build.zig b/build.zig
+index 70d2882..50f32e5 100644
+--- a/build.zig
++++ b/build.zig
+@@ -37,7 +37,22 @@ pub fn build(b: *std.Build) void {
+     const c_mod = c.createModule();
+ 
+     const server_mod = module(b, "src/server.zig", target, optimize, c_mod, sqlite_dir);
+-    const cli_mod = module(b, "src/cli.zig", target, optimize, c_mod, sqlite_dir);
++    // `tilla` reaches SQLite and the wire types through `server.db` and `server.wire`, and
++    // `r2` its `outbound.zig` through the `outbound` module the CLI shares, since a file
++    // belongs to one module only.
++    const tilla = b.createModule(.{ .root_source_file = b.path("src/tilla.zig"), .imports = &.{
++        .{ .name = "c", .module = c_mod },
++        .{ .name = "server", .module = server_mod },
++        .{ .name = "words", .module = words },
++    } });
++    const outbound = b.createModule(.{ .root_source_file = b.path("src/outbound.zig") });
++    const r2 = b.createModule(.{ .root_source_file = b.path("src/r2.zig"), .imports = &.{.{ .name = "outbound.zig", .module = outbound }} });
++    const cli_mod = b.createModule(.{ .root_source_file = b.path("src/cli.zig"), .target = target, .optimize = optimize, .imports = &.{
++        .{ .name = "server", .module = server_mod },
++        .{ .name = "tilla", .module = tilla },
++        .{ .name = "r2", .module = r2 },
++        .{ .name = "outbound", .module = outbound },
++    } });
+ 
+     const server_exe = b.addExecutable(.{ .name = "postilla-server", .root_module = server_mod });
+     const cli_exe = b.addExecutable(.{ .name = "postilla", .root_module = cli_mod });
+@@ -54,13 +69,6 @@ pub fn build(b: *std.Build) void {
+         .optimize = optimize,
+         .imports = &.{.{ .name = "server", .module = server_mod }},
+     });
+-    // `tilla` reaches SQLite and the wire types through `server.db` and `server.wire`.
+-    const tilla = b.createModule(.{ .root_source_file = b.path("src/tilla.zig"), .imports = &.{
+-        .{ .name = "c", .module = c_mod },
+-        .{ .name = "server", .module = server_mod },
+-        .{ .name = "words", .module = words },
+-    } });
+-    const r2 = b.createModule(.{ .root_source_file = b.path("src/r2.zig") });
+     const test_step = b.step("test", "Run the integration tests");
+     // The configure phase is cached: without this, a file added to test/ is ignored
+     // until the cache is cleared.
+@@ -85,6 +93,7 @@ pub fn build(b: *std.Build) void {
+                 .{ .name = "words", .module = words },
+                 .{ .name = "tilla", .module = tilla },
+                 .{ .name = "r2", .module = r2 },
++                .{ .name = "cli", .module = cli_mod },
+             },
+         }) });
+         if (coverage) {
+diff --git a/cli.env.example b/cli.env.example
+index c1b8be2..eaa0379 100644
+--- a/cli.env.example
++++ b/cli.env.example
+@@ -27,6 +27,8 @@ POSTILLA_R2_ACCESS_KEY_ID=
+ POSTILLA_R2_SECRET_ACCESS_KEY=
+ # Required. The public bucket: stories, and the dictionary the content build publishes.
+ POSTILLA_R2_BUCKET=
++# Optional. The S3 API endpoint; by default https://<account>.r2.cloudflarestorage.com.
++# POSTILLA_R2_ENDPOINT=
+ 
+ # --- Stories ------------------------------------------------------------------
+ 
+diff --git a/docs/specification.md b/docs/specification.md
+index 80b5caf..e5d78ea 100644
+--- a/docs/specification.md
++++ b/docs/specification.md
+@@ -148,7 +148,7 @@ dict/<sha256>.db.gz                         a dictionary build
+ - A republish whose audio didn't change gives the same `.opus` and `.flac` keys, so no app downloads them again. The `.tilla` names its `.opus` by `opus_sha256`.
+ - The app builds each `.tilla.gz` URL from a feed record's `id`, `lang` and `sha256`, and the `.opus` URL from the `.tilla`.
+ - A translation without narration has no `.opus` or `.flac`; its `.tilla` has `audio_ms` 0.
+-- The CLI talks to R2's S3 API (`src/r2.zig`) at `https://<account>.r2.cloudflarestorage.com`, path-style (`/<bucket>/<key>`), signing every request with SigV4: region `auto`, service `s3`, signed headers `host;x-amz-content-sha256;x-amz-date`, and `x-amz-content-sha256` set to the body's hex sha256. Every object goes up in one PUT, with `Content-Type` by extension (`.tilla.gz` `application/gzip`, `.opus` `audio/ogg`, `.flac` `audio/flac`), the immutable `Cache-Control` above, and never a `Content-Encoding`: a client would gunzip the `.tilla.gz` and its sha256 check would fail.
++- The CLI talks to R2's S3 API (`src/r2.zig`) at `https://<account>.r2.cloudflarestorage.com` (or `POSTILLA_R2_ENDPOINT`), path-style (`/<bucket>/<key>`), signing every request with SigV4: region `auto`, service `s3`, signed headers `host;x-amz-content-sha256;x-amz-date`, and `x-amz-content-sha256` set to the body's hex sha256. Every object goes up in one PUT, with `Content-Type` by extension (`.tilla.gz` `application/gzip`, `.opus` `audio/ogg`, `.flac` `audio/flac`), the immutable `Cache-Control` above, and never a `Content-Encoding`: a client would gunzip the `.tilla.gz` and its sha256 check would fail.
+ - `stories/` is written only by `postilla publish`; the server never touches R2. The `dict/` keys belong to the postilla-content build ([content-handoff.md](content-handoff.md#4-publishing-dictdb)); the CLI only reads them, and the build never touches `stories/`.
+ 
+ ## Endpoints
+@@ -257,7 +257,7 @@ postilla narrate   <folder>                             narrate every language w
+ postilla publish   <folder>                             build the .tilla files, upload to R2, POST /stories
+ ```
+ 
+-The CLI reads the lists from the server's public endpoints (`GET /languages`, `GET /genres`, `GET /tags`, `GET /authors` at `POSTILLA_SERVER_URL`), so it never needs `postilla.db`. A command that fails prints one line naming the step and the reason and exits non-zero, leaving `story.json` as it was before that step.
++The CLI reads the lists from the server's public endpoints (`GET /languages`, `GET /genres`, `GET /tags`, `GET /authors` at `POSTILLA_SERVER_URL`), so it never needs `postilla.db`. A command that fails prints one line on stderr naming the step and the reason and exits non-zero, leaving `story.json` as it was before that step. Exit codes: 0 success, 1 any failure, 2 a usage error.
+ 
+ ### Story folder
+ 
+@@ -306,7 +306,7 @@ stories/pinocchio-1/
+ | `translations` | you (`it`), `translate` (the others) | One object per language, keyed by language id |
+ | `translations.<lang>.title`, `.subtitle` | | Title and subtitle in that language |
+ | `translations.<lang>.paragraphs` | | Paragraphs in reading order, each an array of sentences |
+-| `translations.<lang>.audio` | `narrate` | Only for a language with `target` 1, once narrated: `audio_ms`, `text_sha256` (sha256 of the text it narrated) and `times`, one `[start_ms, end_ms]` per sentence, in the shape of `paragraphs` |
++| `translations.<lang>.audio` | `narrate` | Only for a language with `target` 1, once narrated: `audio_ms`, `text_sha256` (lowercase hex sha256 of the text it narrated: the translation's sentences joined by one space, its paragraphs by one newline) and `times`, one `[start_ms, end_ms]` per sentence, in the shape of `paragraphs` |
+ 
+ Every command checks `story.json` before it does anything, and stops on the first rule it breaks (`story.json: genre: empty`):
+ 
+@@ -317,7 +317,7 @@ Every command checks `story.json` before it does anything, and stops on the firs
+ 5. `adapted` is 1 only when `author` is not empty.
+ 6. `translations` has `it`. Its `paragraphs` has at least 1 paragraph, every paragraph at least 1 sentence, and no sentence is empty.
+ 7. Every other translation has the same paragraph count as `it` and, paragraph by paragraph, the same sentence count; no title, subtitle or sentence is empty.
+-8. The Italian is at most 20,000 characters, the narration limit.
++8. The Italian is at most 20,000 characters, the narration limit: Unicode code points of its sentences.
+ 
+ ### `postilla translate`
+ 
+@@ -414,21 +414,21 @@ Builds every translation's `.tilla`, uploads the files and publishes the story.
+ 
+ A word takes the most common band among the lemmas its form leads to in `dict.db` (1 before 2 before 3 before 0): "porta" (*portare* 1, *porgere* 2) counts as band 1. A word with no lemma counts as band 0. Words are split, normalized and looked up by the shared `words` module, the same way the app looks them up on tap ([tilla.md, Words](tilla.md#words)).
+ 
+-The CLI gets `dict.db` the same way the app does: it reads `dict/latest` from the public bucket, downloads that build into `POSTILLA_DICT_DIR` if it doesn't have it, and computes `band_words` from it. The build is kept as `<POSTILLA_DICT_DIR>/<sha256>.db`, named by the `.gz`'s sha256; when that file is there nothing is downloaded. Otherwise the `.gz` is checked against `dict/latest`'s size and sha256 (a mismatch is a failed try), gunzipped into an unnamed temp file in the same directory and linked into place. It keeps only the current build there and deletes every other `*.db` once it has switched. A `dict/latest` that isn't the line CONTRACT.md describes fails at once. An R2 failure there is a failed try like any other R2 call. An older story's `band_words` reflect the bands at its publish time until it is republished.
++The CLI gets `dict.db` the same way the app does: it reads `dict/latest` from the public bucket, downloads that build into `POSTILLA_DICT_DIR` (created when missing) if it doesn't have it, and computes `band_words` from it. The build is kept as `<POSTILLA_DICT_DIR>/<sha256>.db`, named by the `.gz`'s sha256; when that file is there nothing is downloaded. Otherwise the `.gz` is checked against `dict/latest`'s size and sha256 (a mismatch is a failed try), gunzipped into an unnamed temp file in the same directory and linked into place. It keeps only the current build there and deletes every other `*.db` once it has switched. A `dict/latest` that isn't the line CONTRACT.md describes fails at once. An R2 failure there is a failed try like any other R2 call. An older story's `band_words` reflect the bands at its publish time until it is republished.
+ 
+ A `.tilla` word is only a span, looked up by form; `dict.db` entry ids change between builds (ARQ-35) and nothing stores them, so a dictionary rebuild never touches a published story.
+ 
+ #### Building and uploading
+ 
+-The CLI writes one `.tilla` per translation ([tilla.md](tilla.md)): the story-level fields, the translation's title, subtitle and sentences, its word spans by the word rule in tilla.md, `words`, `band_words`, and, for a narrated translation, `audio_ms`, `opus_sha256`, `opus_size` and the sentence times. `tilla.build` (`src/tilla.zig`) writes it, with its gzip and sha256, and refuses the inputs tilla.md lists under Reader rules. For `band_words` it tries each of `words.lookupKeys`'s keys against `form`, then `form_norm`; the first key that finds a row decides the word's band. `dict.db` is opened only for the Italian original; a `dict.db` that can't be opened or read fails the build. The sha256 is taken of the `.tilla` before gzip, so an unchanged translation keeps its sha256, its key and its cursor whatever the gzip library or level does; the gzip needs no fixed settings.
++The CLI writes one `.tilla` per translation ([tilla.md](tilla.md)): the story-level fields, the translation's title, subtitle and sentences, its word spans by the word rule in tilla.md, `words`, `band_words`, and, for a narrated translation, `audio_ms`, `opus_sha256`, `opus_size` and the sentence times. `tilla.build` (`src/tilla.zig`) writes it, with its gzip and sha256, and refuses the inputs tilla.md lists under Reader rules. For `band_words` it tries each of `words.lookupKeys`'s keys against `form`, then `form_norm`; the first key that finds a row decides the word's band. `dict.db` is opened only for the Italian original, read-only and with no pragmas, so the cached build is never changed (no `-wal` or `-shm` next to it) and a read-only file works; a `dict.db` that can't be opened or read fails the build, naming it. The sha256 is taken of the `.tilla` before gzip, so an unchanged translation keeps its sha256, its key and its cursor whatever the gzip library or level does; the gzip needs no fixed settings.
+ 
+-It uploads every translation's `.tilla.gz`, `.opus` and `.flac` to R2 under the keys in [Files in R2](#files-in-r2). Keys are content-addressed, so uploading a file that is already there writes the same bytes again. Last, after every file is in R2, it sends `POST /stories` with every translation's `lang` and `sha256`, and the server takes the cursors. A 409 for a missing published translation means the folder lacks a language the story was published in: add it back.
++It uploads every translation's `.tilla.gz`, `.opus` and `.flac` to R2 under the keys in [Files in R2](#files-in-r2). Keys are content-addressed, so uploading a file that is already there writes the same bytes again. It uploads every `.tilla.gz` first, then the audio, one at a time, and prints one line per uploaded object (`uploaded <key>`); a failed upload stops the command, naming the key, before `POST /stories`. Last, after every file is in R2, it sends `POST /stories` with every translation's `lang` and `sha256`, and the server takes the cursors; it then prints `published <id>`. A 4xx's reason is printed as is: a 409 for a missing published translation means the folder lacks a language the story was published in: add it back.
+ 
+ ### Retries
+ 
+ Each call to an outside service (OpenCode, Speechify, R2) goes through `outbound.request` (`src/outbound.zig`) and gets 4 tries in all (1 + 3 retries), waiting 5 s, 30 s, then 2 min between them. A network error, a timeout, a 429 or a 5xx counts as a failed try; a `Retry-After` in seconds on a 429 or a 503 replaces the scheduled wait, capped at 2 min. Any other status ends the call at once with that status.
+ 
+-A try times out after 10 s without a connection, or 60 s after connecting without the whole answer. The HTTP client has no timeouts of its own, so the try runs as a task that is canceled when either time runs out.
++A try times out after 10 s without a connection, or 60 s after connecting without the whole answer. The HTTP client has no timeouts of its own, so the try runs as a task that is canceled when either time runs out. Each try sends its own copy of the request body, so a try cut mid-send can't change the bytes the next one sends. The CLI's calls to the server (the lists and `POST /stories`) go through `outbound.request` too.
+ 
+ After the fourth failed try, the command stops with the step that failed and the error. Rerunning it starts that step over, keeping what `story.json` already holds.
+ 
+@@ -506,7 +506,7 @@ Everything comes from env, read and checked once at startup. A missing required
+ 
+ ### CLI
+ 
+-[`cli.env.example`](../cli.env.example) lists every variable with its default. Copy it to `cli.env`, which git ignores. The CLI loads `cli.env` from the current directory when it is there; a variable already set in the environment wins over the file.
++[`cli.env.example`](../cli.env.example) lists every variable with its default. Copy it to `cli.env`, which git ignores. The CLI loads `cli.env` from the current directory when it is there; a variable already set in the environment wins over the file. `cli.env` is `KEY=value` lines, like `.env`: blank lines and lines starting with `#` are skipped, there are no quotes or escapes, and a line without `=` stops the command, naming its line number. A required variable that is empty counts as missing.
+ 
+ | Variable | Default | What it is |
+ |---|---|---|
+@@ -518,6 +518,7 @@ Everything comes from env, read and checked once at startup. A missing required
+ | `POSTILLA_R2_ACCESS_KEY_ID` | required | R2 S3 access key id |
+ | `POSTILLA_R2_SECRET_ACCESS_KEY` | required | R2 S3 secret key |
+ | `POSTILLA_R2_BUCKET` | required | The public bucket: stories and the dictionary |
++| `POSTILLA_R2_ENDPOINT` | `https://<account>.r2.cloudflarestorage.com` | The S3 API endpoint, replacing the one built from `POSTILLA_R2_ACCOUNT_ID` |
+ | `POSTILLA_DICT_DIR` | `./dict` | Where the CLI caches the current `dict.db` build |
+ | `POSTILLA_MODERATION_THRESHOLD` | `0.9` | Minimum `P(none)` to pass moderation |
+ 
+diff --git a/src/cli.zig b/src/cli.zig
+index 07a95ee..95acfac 100644
+--- a/src/cli.zig
++++ b/src/cli.zig
+@@ -1,7 +1,14 @@
+ //! postilla: the authoring CLI (specification.md, The CLI). Each command works on one
+-//! story folder. The commands come with their slices; this is only the entry point.
++//! story folder. `publish` is the only command so far.
+ 
+ const std = @import("std");
++const Io = std.Io;
++const Allocator = std.mem.Allocator;
++const Sha256 = std.crypto.hash.sha2.Sha256;
++const wire = @import("server").wire;
++const tilla = @import("tilla");
++const r2 = @import("r2");
++const outbound = @import("outbound");
+ 
+ const usage =
+     \\usage: postilla <command> <folder>
+@@ -13,7 +20,202 @@ const usage =
+ ;
+ 
+ pub fn main(init: std.process.Init) !void {
+-    _ = init;
+-    std.debug.print("{s}", .{usage});
+-    std.process.exit(2);
++    const a = init.arena.allocator();
++    std.process.exit(run(init.io, a, init.environ_map, .cwd(), try init.minimal.args.toSlice(a)));
++}
++
++/// Runs the command `args` names (program name first) in `cwd`, with `env` filled in from
++/// `cwd`'s `cli.env`. Returns the exit code: 0 done, 1 failed (one line on stderr naming
++/// the step and the reason), 2 usage.
++pub fn run(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, args: []const [:0]const u8) u8 {
++    var buf: [1024]u8 = undefined;
++    var stderr = Io.File.stderr().writerStreaming(io, &buf);
++    defer stderr.interface.flush() catch {};
++    if (args.len != 3 or !std.mem.eql(u8, args[1], "publish")) {
++        stderr.interface.writeAll(usage) catch {};
++        return 2;
++    }
++    var where: []const u8 = "";
++    publish(io, a, env, cwd, args[2], &where) catch |err| {
++        stderr.interface.print("publish: {s}: {t}\n", .{ where, err }) catch {};
++        return 1;
++    };
++    return 0;
++}
++
++/// `postilla publish <path>` (specification.md, `postilla publish`). On an error, `where`
++/// names the step, file, id or object it failed on.
++fn publish(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, path: []const u8, where: *[]const u8) !void {
++    where.* = "cli.env";
++    if (cwd.readFileAlloc(io, "cli.env", a, .limited(1 << 20))) |file| {
++        var lines = std.mem.splitScalar(u8, file, '\n');
++        var n: usize = 0;
++        while (lines.next()) |line| {
++            n += 1;
++            if (line.len == 0 or line[0] == '#') continue;
++            const eq = std.mem.findScalar(u8, line, '=') orelse 0;
++            if (eq == 0) {
++                where.* = try std.fmt.allocPrint(a, "cli.env line {d}", .{n});
++                return error.NotKeyValue;
++            }
++            if (!env.contains(line[0..eq])) try env.put(line[0..eq], line[eq + 1 ..]);
++        }
++    } else |err| if (err != error.FileNotFound) return err;
++    for ([_][]const u8{
++        "POSTILLA_SERVER_URL",    "POSTILLA_AUTHOR_TOKEN",     "POSTILLA_OPENCODE_KEY",         "POSTILLA_SPEECHIFY_KEY",
++        "POSTILLA_R2_ACCOUNT_ID", "POSTILLA_R2_ACCESS_KEY_ID", "POSTILLA_R2_SECRET_ACCESS_KEY", "POSTILLA_R2_BUCKET",
++    }) |name| if (@as([]const u8, env.get(name) orelse "").len == 0) {
++        where.* = name;
++        return error.Missing;
++    };
++    const server = env.get("POSTILLA_SERVER_URL").?;
++
++    // story.json and its rules 1 to 8.
++    where.* = path;
++    var dir = try cwd.openDir(io, path, .{});
++    defer dir.close(io);
++    const json = try dir.readFileAlloc(io, "story.json", a, .limited(1 << 24));
++    where.* = "story.json";
++    const s = try std.json.parseFromSliceLeaky(struct {
++        id: []const u8,
++        level: u8,
++        genre: []const u8,
++        tags: []const []const u8,
++        work: []const u8,
++        part: u16,
++        author: []const u8,
++        adapted: u8,
++        license: []const u8,
++        moderation: struct { none: f64 = 0, homophobic: f64 = 0, racist: f64 = 0, sexist: f64 = 0, religious: f64 = 0, other_hate: f64 = 0, forced: bool = false } = .{},
++        translations: std.json.ArrayHashMap(struct {
++            title: []const u8,
++            subtitle: []const u8,
++            paragraphs: []const []const []const u8,
++            audio: struct { audio_ms: u32 = 0, text_sha256: []const u8 = "", times: []const []const [2]u32 = &.{} } = .{},
++        }),
++    }, a, json, .{});
++    const id = try wire.StoryId.parse(s.id);
++    if (s.genre.len == 0 or s.license.len == 0 or s.level < 1 or s.level > 6 or s.adapted > 1) return error.BadHeader;
++    for (s.license) |ch| if (ch > 0x7f) return error.BadHeader;
++    if ((s.work.len == 0) != (s.part == 0)) return error.WorkWithoutPart;
++    for (s.tags, 0..) |tag, i| {
++        if (tag.len == 0) return error.BadTag;
++        for (s.tags[0..i]) |prev| if (std.mem.eql(u8, tag, prev)) return error.BadTag;
++    }
++    if (s.adapted == 1 and s.author.len == 0) return error.AdaptedWithoutAuthor;
++    const map = s.translations.map;
++    const it = map.get("it") orelse return error.NoItalian;
++    if (it.paragraphs.len == 0) return error.BadTranslation;
++    for (map.values()) |t| {
++        if (t.title.len == 0 or t.subtitle.len == 0 or t.paragraphs.len != it.paragraphs.len) return error.BadTranslation;
++        for (t.paragraphs, it.paragraphs) |p, it_p| {
++            if (p.len == 0 or p.len != it_p.len) return error.BadTranslation;
++            for (p) |sentence| if (sentence.len == 0) return error.BadTranslation;
++        }
++    }
++    var chars: usize = 0;
++    for (it.paragraphs) |p| for (p) |sentence| {
++        chars += try std.unicode.utf8CountCodepoints(sentence);
++    };
++    if (chars > 20_000) return error.ItalianTooLong;
++
++    // The server's lists.
++    const genre = [_][]const u8{s.genre};
++    const author = [_][]const u8{s.author};
++    inline for (.{ .{ "/genres", "GNRS", 3, &genre }, .{ "/tags", "TAGS", 3, s.tags }, .{ "/authors", "AUTH", 1, author[0..@intFromBool(s.author.len > 0)] } }) |l| {
++        where.* = l[0];
++        var r = try list(io, a, server, l[0], l[1]);
++        const ids = try a.alloc([]const u8, try r.int(u16));
++        for (ids) |*listed| {
++            listed.* = try r.str();
++            for (0..l[2]) |_| _ = try r.str();
++        }
++        for (l[3]) |want| for (ids) |listed| {
++            if (std.mem.eql(u8, listed, want)) break;
++        } else {
++            where.* = try std.fmt.allocPrint(a, "{s} '{s}' not listed", .{ l[0][1..], want });
++            return error.NotListed;
++        };
++    }
++    const inputs = try a.alloc(tilla.Input, map.count());
++    for (inputs, map.values()) |*in, t| in.* = .{ .id = id, .original = try .fromText("it"), .title = t.title, .subtitle = t.subtitle, .paragraphs = t.paragraphs, .level = s.level, .genre = s.genre, .tags = s.tags, .work = s.work, .part = s.part, .author = s.author, .adapted = s.adapted == 1, .license = s.license };
++    var uploads: std.ArrayList([2][]const u8) = .empty;
++    where.* = "/languages";
++    var r = try list(io, a, server, "/languages", "LANG");
++    for (0..try r.int(u16)) |_| {
++        const lang = try r.str();
++        _ = try r.str();
++        const target = try r.int(u8);
++        const translate = try r.int(u8);
++        where.* = lang;
++        const i = map.getIndex(lang) orelse if (translate == 1) return error.RunTranslate else continue;
++        // Only a listed language gets its `lang`; one left zero is named below.
++        inputs[i].lang = try .fromText(lang);
++        if (target == 0) continue;
++        // The narration input: sentences joined by a space, paragraphs by a newline.
++        const t = map.values()[i];
++        const lines = try a.alloc([]const u8, t.paragraphs.len);
++        for (lines, t.paragraphs) |*line, p| line.* = try std.mem.join(a, " ", p);
++        var text_sha: [32]u8 = undefined;
++        Sha256.hash(try std.mem.join(a, "\n", lines), &text_sha, .{});
++        if (!std.mem.eql(u8, t.audio.text_sha256, &std.fmt.bytesToHex(text_sha, .lower))) return error.RunNarrate;
++        var times: std.ArrayList(std.meta.Child(@FieldType(@FieldType(tilla.Input, "narration"), "times"))) = .empty;
++        for (t.audio.times) |p| for (p) |pair| try times.append(a, .{ .start_ms = pair[0], .end_ms = pair[1] });
++        for ([_][]const u8{ "opus", "flac" }) |ext| {
++            const file = dir.readFileAlloc(io, try std.fmt.allocPrint(a, "{s}.{s}", .{ lang, ext }), a, .unlimited) catch return error.RunNarrate;
++            var sha: [32]u8 = undefined;
++            Sha256.hash(file, &sha, .{});
++            if (ext[0] == 'o') inputs[i].narration = .{ .audio_ms = t.audio.audio_ms, .opus_sha256 = sha, .opus_size = @intCast(file.len), .times = times.items };
++            try uploads.append(a, .{ try std.fmt.allocPrint(a, "stories/{s}/{s}/{s}.{s}", .{ &id.text(), lang, &std.fmt.bytesToHex(sha, .lower), ext }), file });
++        }
++    }
++    for (inputs, map.keys()) |in, lang| if (in.lang.text().len == 0) {
++        where.* = try std.fmt.allocPrint(a, "language '{s}' not listed", .{lang});
++        return error.NotListed;
++    };
++
++    // Build every .tilla, upload them and then the audio, and publish.
++    const c: r2.Client = .{
++        .endpoint = env.get("POSTILLA_R2_ENDPOINT") orelse try std.fmt.allocPrint(a, "https://{s}.r2.cloudflarestorage.com", .{env.get("POSTILLA_R2_ACCOUNT_ID").?}),
++        .bucket = env.get("POSTILLA_R2_BUCKET").?,
++        .access_key_id = env.get("POSTILLA_R2_ACCESS_KEY_ID").?,
++        .secret_access_key = env.get("POSTILLA_R2_SECRET_ACCESS_KEY").?,
++    };
++    const dict_dir = env.get("POSTILLA_DICT_DIR") orelse "./dict";
++    where.* = dict_dir;
++    try cwd.createDirPath(io, dict_dir);
++    const dict = try a.dupeSentinel(u8, try c.dict(io, a, dict_dir), 0);
++    var body: wire.Writer = .{ .buf = try a.alloc(u8, 22 + 40 * inputs.len) };
++    body.header("STRY");
++    body.bytes(&id.bytes);
++    body.int(u8, @intCast(inputs.len));
++    for (inputs) |in| {
++        where.* = try std.fmt.allocPrint(a, "{s} with {s}", .{ in.lang.text(), dict });
++        const built = try tilla.build(a, in, dict);
++        try uploads.insert(a, 0, .{ try std.fmt.allocPrint(a, "stories/{s}/{s}/{s}.tilla.gz", .{ &id.text(), in.lang.text(), &std.fmt.bytesToHex(built.sha256, .lower) }), built.gz });
++        body.bytes(&in.lang.bytes);
++        body.bytes(&built.sha256);
++    }
++    for (uploads.items) |u| {
++        where.* = u[0];
++        if ((try c.put(io, a, u[0], u[1])).status != .ok) return error.R2Status;
++        try Io.File.stdout().writeStreamingAll(io, try std.fmt.allocPrint(a, "uploaded {s}\n", .{u[0]}));
++    }
++    where.* = "POST /stories";
++    const auth = try std.fmt.allocPrint(a, "Bearer {s}", .{env.get("POSTILLA_AUTHOR_TOKEN").?});
++    const res = try outbound.request(io, a, .{}, .POST, try std.fmt.allocPrint(a, "{s}/stories", .{server}), &.{.{ .name = "authorization", .value = auth }}, body.written(), "");
++    if (res.status != .ok) {
++        where.* = try std.fmt.allocPrint(a, "POST /stories: {s}", .{std.mem.trimEnd(u8, res.body, "\n")});
++        return error.Refused;
++    }
++    try Io.File.stdout().writeStreamingAll(io, try std.fmt.allocPrint(a, "published {s}\n", .{&id.text()}));
++}
++
++/// `GET <server><path>`, a 200 whose body starts with `magic`, read past its header.
++fn list(io: Io, a: Allocator, server: []const u8, path: []const u8, magic: *const [4]u8) !wire.Reader {
++    const res = try outbound.request(io, a, .{}, .GET, try std.fmt.allocPrint(a, "{s}{s}", .{ server, path }), &.{}, "", "");
++    if (res.status != .ok) return error.ServerStatus;
++    var r: wire.Reader = .{ .buf = res.body };
++    try r.header(magic);
++    return r;
+ }
+diff --git a/src/db.zig b/src/db.zig
+index 083f6cc..38fa63c 100644
+--- a/src/db.zig
++++ b/src/db.zig
+@@ -70,6 +70,16 @@ pub fn open(path: [:0]const u8) error{Sqlite}!Db {
+     return d;
+ }
+ 
++/// Opens the database at `path` read-only, with no pragmas, so it is never changed and
++/// works on a read-only file: `dict.db`.
++pub fn openReadOnly(path: [:0]const u8) error{Sqlite}!Db {
++    var d: Db = .{};
++    if (c.sqlite3_open_v2(path.ptr, &d.handle, c.SQLITE_OPEN_READONLY | c.SQLITE_OPEN_NOMUTEX, null) == c.SQLITE_OK) return d;
++    const err = fail(d);
++    d.close();
++    return err;
++}
++
+ /// Logs the connection's last error as a warning; the caller decides what the failure
+ /// means (a 500, or a startup that stops).
+ fn fail(d: Db) error{Sqlite} {
+diff --git a/src/outbound.zig b/src/outbound.zig
+index f8ddb21..0b512d4 100644
+--- a/src/outbound.zig
++++ b/src/outbound.zig
+@@ -51,8 +51,9 @@ fn send(client: *std.http.Client, method: std.http.Method, uri: std.Uri, headers
+     defer req.deinit();
+     errdefer req.connection.?.closing = true;
+     events[0].set(client.io);
+-    // Only read: `sendBodyComplete` sends the buffer it is given as the body.
+-    try req.sendBodyComplete(@constCast(body));
++    // `sendBodyComplete` may move bytes in the buffer it is given when a send is cut, so
++    // each try sends its own copy.
++    try req.sendBodyComplete(try client.allocator.dupe(u8, body));
+     var response = try req.receiveHead(&.{});
+     var it = response.head.iterateHeaders();
+     while (it.next()) |h| {
+diff --git a/src/tilla.zig b/src/tilla.zig
+index e5c5eda..e6a22b2 100644
+--- a/src/tilla.zig
++++ b/src/tilla.zig
+@@ -47,7 +47,7 @@ pub fn build(arena: std.mem.Allocator, in: Input, dict: [:0]const u8) !struct {
+     var lookup: db.Stmt = .{ .db = dict_db };
+     defer _ = c.sqlite3_finalize(lookup.handle);
+     if (italian) {
+-        dict_db = try db.open(dict);
++        dict_db = try db.openReadOnly(dict);
+         // The key's lowest band among the lemmas it leads to by `form`, else by `form_norm`,
+         // with band 0 ranked last; NULL when it leads to none.
+         lookup = try dict_db.prepare(
