@@ -389,30 +389,37 @@ Read the translation in `story.json` and fix it by hand before narrating and pub
 
 Narrates every translation in a language with `target` 1 (today only the Italian original); learners listen in the language they are learning. When another language becomes a target, its translations are narrated too, with a Speechify voice per language. A rerun narrates again and replaces the audio; narration reads only the paragraphs, so a title, subtitle or header change doesn't need it.
 
-One streamed call narrates one translation: `POST https://api.speechify.ai/v1/audio/stream/with-timestamps` (Server-Sent Events), with `Authorization: Bearer $POSTILLA_SPEECHIFY_KEY`. The request sets:
+One streamed call narrates one translation: `POST https://api.speechify.ai/v1/audio/stream/with-timestamps` (Server-Sent Events; the base URL is `POSTILLA_SPEECHIFY_URL`), with `Authorization: Bearer $POSTILLA_SPEECHIFY_KEY`. The request's JSON body sets:
 
+- `input` to the text to narrate (below)
 - `model` to `simba-3.5`
 - `voice_id` to the language's voice: `daniele-agent` for `it`
 - `language` to `it-IT` for `it`
 - `output_format` to `pcm_48000`, the highest-quality PCM that Speechify streams: headerless 16-bit little-endian mono at 48 kHz (`audio/L16;rate=48000;channels=1`)
+- `options` to `{"loudness_normalization": true}`; text normalization stays at its default, off
+
+The voice and language come from a table fixed in the CLI by language id (today only `it`); a language with `target` 1 that isn't in it stops the command (`<lang>: no voice`) before any call to Speechify.
 
 That endpoint takes up to 20,000 spoken characters, which is why `story.json` rule 8 limits the Italian.
 
-The input is the translation's paragraphs joined in reading order. The CLI reads the events:
+The input is the translation's paragraphs joined in reading order: the sentences joined by one space within a paragraph and the paragraphs by one newline, the same text whose sha256 is `text_sha256`. The CLI reads the events:
 
-- `speech.chunk` events carry the audio and word marks. Each mark has `start` and `end` (character offsets into the input) and `start_time` and `end_time` in ms.
+- `speech.chunk` events carry the audio (base64) and word marks. Each mark has `start` and `end` (code-point offsets into the input) and `start_time` and `end_time` in ms.
 - `speech.done` ends the stream.
+- Other event types are ignored.
 - `speech.error`, or a dropped connection, counts as a failed try. The whole call is retried, since one stream can't resume halfway.
+
+A 200 whose events include `speech.error`, that ends without `speech.done`, whose audio isn't valid base64 or has an odd byte count, or whose events aren't JSON is a bad stream. Each of up to 3 tries is a whole `outbound.request` ([Retries](#retries)), the next one sent at once; after the third the command stops with `<lang>: narration: <reason>`, the `speech.error` message when there is one. A non-200 answer stops it at once with the status.
 
 The stream yields three outputs:
 
-- **Sentence times:** each sentence's `start_ms` and `end_ms` run from its first word's `start_time` to its last word's `end_time`. Words are matched to sentences by mapping the marks' character offsets onto the sentences.
+- **Sentence times:** each sentence's `start_ms` and `end_ms` run from its first word's `start_time` to its last word's `end_time`, both rounded down to whole ms. Words are matched to sentences by mapping the marks' character offsets onto the sentences: a mark belongs to the sentence whose code-point range in the input holds its `start`. A sentence with no mark gets `[e, e]`, `e` the previous sentence's `end_ms` (0 for the first). Every `end_ms` is capped at `audio_ms`, so tilla.md's reader rules hold.
 - **App audio:** the PCM is encoded once to the Ogg Opus `.opus` that tilla.md describes (16 kbps, mono), written as `<lang>.opus`, with vendored libopusenc over vendored libopus. libopusenc writes the Ogg container (headers, pages, pre-skip, end trimming) and resamples to a rate Opus takes, so the CLI writes no container code. The settings are fixed: 16,000 bit/s, `OPUS_SIGNAL_VOICE`, complexity 10, VBR, and Ogg serial number 1 (libopusenc picks a random one otherwise), so the same PCM always gives the same `.opus` bytes and an unchanged narration keeps its `opus_sha256`. OpusHead's input rate is the PCM's rate, and `OpusTags` holds only libopusenc's vendor string. `audio_ms` is the PCM's length: its sample count ÷ its sample rate × 1000, rounded down.
 - **Master:** the same PCM is also compressed to FLAC with vendored libFLAC, written as `<lang>.flac`. It is a lossless copy kept for re-encoding later: compression level 8, 16 bits, mono, the PCM's rate, the MD5 signature on, and the sample count in STREAMINFO. The app never downloads it.
 
 `audio.encode` (`src/audio.zig`) makes both files in memory from the samples and their rate, and narrate writes them. It refuses no samples (`error.NoAudio`) and a rate outside 8,000–96,000 Hz (`error.UnsupportedRate`) before any C call; a codec call that fails returns `error.OpusEncode` or `error.FlacEncode`.
 
-The times, `audio_ms` and the sha256 of the input text go to the translation's `audio` in `story.json`. Listen to the `.opus` before publishing.
+The times, `audio_ms` and the sha256 of the input text go to the translation's `audio` in `story.json`. Per language, once all of its audio is encoded, `<lang>.opus`, `<lang>.flac` and then `story.json` are written, each to a temp file renamed into place; a file that can't be written stops the command naming it. Listen to the `.opus` before publishing.
 
 ### `postilla publish`
 
@@ -442,7 +449,7 @@ It uploads every translation's `.tilla.gz`, `.opus` and `.flac` to R2 under the 
 
 Each call to an outside service (OpenCode, Speechify, R2) and to the server goes through `outbound.request` (`src/outbound.zig`) and gets 4 tries in all (1 + 3 retries), waiting 5 s, 30 s, then 2 min between them. A network error, a timeout, a 429 or a 5xx counts as a failed try; a `Retry-After` in seconds on a 429 or a 503 replaces the scheduled wait, capped at 2 min. Any other status ends the call at once with that status.
 
-Every call sends `user-agent: postilla/1.0` (the HTTP client's own `zig/…` is replaced), which OpenCode Go asks of its clients, and `accept-encoding: identity`, since the client asks for gzip by default and OpenCode answers gzipped when asked. Each try sends its own copy of the body, so a try cut mid-send can't change what the next one sends. A try times out after 10 s without a connection, or 60 s after connecting without the whole answer. The HTTP client has no timeouts of its own, so the try runs as a task that is canceled when either time runs out.
+Every call sends `user-agent: postilla/1.0` (the HTTP client's own `zig/…` is replaced), which OpenCode Go asks of its clients, and `accept-encoding: identity`, since the client asks for gzip by default and OpenCode answers gzipped when asked. Each try sends its own copy of the body, so a try cut mid-send can't change what the next one sends. A try times out after 10 s without a connection, or after 60 s with nothing received: the idle timer restarts with every part of the answer that arrives, so a long stream that keeps sending (a narration) runs as long as it takes. The HTTP client has no timeouts of its own, so the try runs as a task that is canceled when either time runs out.
 
 After the fourth failed try, the command stops with the step that failed and the error. Rerunning it starts that step over, keeping what `story.json` already holds.
 
@@ -529,6 +536,7 @@ Everything comes from env, read and checked once at startup. A missing required 
 | `POSTILLA_OPENCODE_KEY` | required | OpenCode key, for Jev and DeepSeek |
 | `POSTILLA_OPENCODE_URL` | `https://opencode.ai/inference` | OpenCode's base URL; `translate` stops naming it when it has no `://` |
 | `POSTILLA_SPEECHIFY_KEY` | required | Speechify key |
+| `POSTILLA_SPEECHIFY_URL` | `https://api.speechify.ai` | Speechify's base URL; `narrate` stops naming it when it has no `://` |
 | `POSTILLA_R2_ACCOUNT_ID` | required | Cloudflare account id |
 | `POSTILLA_R2_ENDPOINT` | `https://<account>.r2.cloudflarestorage.com` | R2's S3 API base URL, when it isn't the account's |
 | `POSTILLA_R2_ACCESS_KEY_ID` | required | R2 S3 access key id |

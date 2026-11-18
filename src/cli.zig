@@ -1,5 +1,5 @@
 //! postilla: the authoring CLI (specification.md, The CLI). Each command works on one
-//! story folder. The commands come with their slices: `translate` and `publish` so far.
+//! story folder: `translate`, `narrate` and `publish`.
 
 const std = @import("std");
 const Io = std.Io;
@@ -31,7 +31,7 @@ pub fn run(io: Io, arena: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir,
     var buf: [4096]u8 = undefined;
     var out = Io.File.stderr().writerStreaming(io, &buf);
     defer out.interface.flush() catch {};
-    var ok = (args.len == 3 and std.mem.eql(u8, args[1], "publish")) or (args.len >= 3 and std.mem.eql(u8, args[1], "translate"));
+    var ok = (args.len == 3 and (std.mem.eql(u8, args[1], "publish") or std.mem.eql(u8, args[1], "narrate"))) or (args.len >= 3 and std.mem.eql(u8, args[1], "translate"));
     var force = false;
     var redo: []const u8 = "";
     var i: usize = 3;
@@ -47,7 +47,7 @@ pub fn run(io: Io, arena: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir,
         out.interface.writeAll(usage) catch {};
         return 2;
     }
-    return command(io, arena, env, cwd, args[2], &out.interface, args[1][0] == 't', force, redo) catch |err| fail(&out.interface, "{s}: {t}", .{ args[1], err });
+    return command(io, arena, env, cwd, args[2], &out.interface, args[1][0] == 't', args[1][0] == 'n', force, redo) catch |err| fail(&out.interface, "{s}: {t}", .{ args[1], err });
 }
 
 /// Prints one line naming what failed; returns exit code 1.
@@ -81,6 +81,9 @@ pub fn moderate(io: Io, a: Allocator, base: []const u8, headers: []const std.htt
 /// The English name DeepSeek's system message gives each language with `translate` 1.
 const prompt_names: std.StaticStringMap([]const u8) = .initComptime(.{.{ "pt-BR", "Brazilian Portuguese" }});
 
+/// Speechify's `voice_id` and `language` for each language with `target` 1.
+const voices: std.StaticStringMap([2][]const u8) = .initComptime(.{.{ "it", .{ "daniele-agent", "it-IT" } }});
+
 /// DeepSeek's system message, `{0s}` the prompt name and `{1s}` the CEFR level.
 const system_message =
     \\You translate short Italian stories into {0s} for {0s} speakers learning Italian.
@@ -93,11 +96,12 @@ const system_message =
     \\- Reply with only a JSON array of strings: one {0s} sentence per Italian sentence, in the same order, the same count. No commentary, no code fences.
 ;
 
-/// `postilla translate <folder>` and `postilla publish <folder>` (specification.md, The
-/// CLI): the configuration, `story.json`'s rules and the server's lists, which both share,
-/// then `translate`'s moderation and translations, or `publish`'s `.tilla` builds, uploads
-/// and last `POST /stories`. Nothing goes to OpenCode or R2 until every check has passed.
-fn command(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, folder: []const u8, w: *Io.Writer, translate: bool, force: bool, redo: []const u8) !u8 {
+/// `postilla translate`, `narrate` and `publish <folder>` (specification.md, The CLI): the
+/// configuration, `story.json`'s rules and the server's lists, which all share, then
+/// `translate`'s moderation and translations, `narrate`'s Speechify streams, or `publish`'s
+/// `.tilla` builds, uploads and last `POST /stories`. Nothing goes to OpenCode, Speechify or
+/// R2 until every check has passed.
+fn command(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, folder: []const u8, w: *Io.Writer, translate: bool, narrate: bool, force: bool, redo: []const u8) !u8 {
     if (cwd.readFileAlloc(io, "cli.env", a, .limited(1 << 20))) |text| {
         var lines = std.mem.splitScalar(u8, text, '\n');
         var n: usize = 0;
@@ -119,6 +123,9 @@ fn command(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, fol
     const opencode_env = env.get("POSTILLA_OPENCODE_URL") orelse "";
     const opencode = if (opencode_env.len > 0) opencode_env else "https://opencode.ai/inference";
     if (translate and std.mem.find(u8, opencode, "://") == null) return fail(w, "POSTILLA_OPENCODE_URL: not a URL", .{});
+    const speechify_env = env.get("POSTILLA_SPEECHIFY_URL") orelse "";
+    const speechify = if (speechify_env.len > 0) speechify_env else "https://api.speechify.ai";
+    if (narrate and std.mem.find(u8, speechify, "://") == null) return fail(w, "POSTILLA_SPEECHIFY_URL: not a URL", .{});
     const threshold_env = env.get("POSTILLA_MODERATION_THRESHOLD") orelse "";
     const threshold = std.fmt.parseFloat(f64, if (threshold_env.len > 0) threshold_env else "0.9") catch -1;
     if (translate and !(threshold >= 0 and threshold <= 1)) return fail(w, "POSTILLA_MODERATION_THRESHOLD: not a number from 0 to 1", .{});
@@ -258,6 +265,84 @@ fn command(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, fol
                 var top: usize = 1;
                 for (2..6) |k| top = if (scores[k] > scores[top]) k else top;
                 return fail(w, "moderation: rejected, none {d} below {d} (homophobic {d}, racist {d}, sexist {d}, religious {d}, other_hate {d}): {s}", .{ scores[0], threshold, scores[1], scores[2], scores[3], scores[4], scores[5], ([_][]const u8{ "", "homophobic", "racist", "sexist", "religious", "other_hate" })[top] });
+            }
+        }
+        return 0;
+    }
+    if (narrate) {
+        for (translations.keys()) |lang| if ((lists[3].get(lang) orelse [2]u8{ 0, 0 })[0] == 1 and !voices.has(lang)) return fail(w, "{s}: no voice", .{lang});
+        const url = try std.fmt.allocPrint(a, "{s}/v1/audio/stream/with-timestamps", .{speechify});
+        const headers = [_]std.http.Header{.{ .name = "authorization", .value = try std.fmt.allocPrint(a, "Bearer {s}", .{env.get("POSTILLA_SPEECHIFY_KEY").?}) }};
+        for (translations.keys(), translations.values()) |lang, *t| {
+            if ((lists[3].get(lang) orelse [2]u8{ 0, 0 })[0] != 1) continue;
+            // The input, which is also what is hashed: sentences joined by a space, paragraphs
+            // by a newline; and the code point each sentence starts at in it.
+            var input: Io.Writer.Allocating = .init(a);
+            var starts: std.ArrayList(usize) = .empty;
+            for (t.paragraphs, 0..) |p, i| for (p, 0..) |s, j| {
+                try input.writer.writeAll(if (j > 0) " " else if (i > 0) "\n" else "");
+                try starts.append(a, try std.unicode.utf8CountCodepoints(input.written()));
+                try input.writer.writeAll(s);
+            };
+            const voice = voices.get(lang).?;
+            const body = try std.json.Stringify.valueAlloc(a, .{ .input = input.written(), .voice_id = voice[0], .model = "simba-3.5", .language = voice[1], .output_format = "pcm_48000", .options = .{ .loudness_normalization = true } }, .{});
+
+            // 3 tries: a stream with speech.error, an event that isn't JSON or base64 audio,
+            // an odd byte count or no speech.done starts the next. A mark's sentence is the
+            // one its start falls in; the sentence runs from its first mark to its last.
+            var reason: []const u8 = "";
+            const pcm: []align(2) u8, const times: [][2]u32 = tries: for (0..3) |_| {
+                const res = outbound.request(io, a, .{}, .POST, url, &headers, body, "") catch |err| return fail(w, "{s}: narration: {t}", .{ lang, err });
+                if (res.status != .ok) return fail(w, "{s}: narration: {d}", .{ lang, @backingInt(res.status) });
+                var bytes: std.array_list.Aligned(u8, .of(i16)) = .empty;
+                const got = try a.alloc([2]u32, starts.items.len);
+                @memset(got, .{ std.math.maxInt(u32), 0 });
+                var lines = std.mem.splitScalar(u8, res.body, '\n');
+                while (lines.next()) |line| {
+                    if (!std.mem.startsWith(u8, line, "data:")) continue;
+                    reason = "an event isn't JSON";
+                    const e = std.json.parseFromSliceLeaky(struct { type: []const u8 = "", audio: []const u8 = "", speech_marks: []const struct { start: usize, start_time: f64, end_time: f64 } = &.{}, @"error": struct { message: []const u8 = "" } = .{} }, a, line[5..], .{ .ignore_unknown_fields = true }) catch continue :tries;
+                    reason = "audio isn't base64";
+                    const decoder = std.base64.standard.Decoder;
+                    decoder.decode(try bytes.addManyAsSlice(a, decoder.calcSizeForSlice(e.audio) catch continue :tries), e.audio) catch continue :tries;
+                    for (e.speech_marks) |m| {
+                        var k = got.len - 1;
+                        while (starts.items[k] > m.start) k -= 1;
+                        got[k] = .{ @min(got[k][0], @as(u32, @intFromFloat(m.start_time))), @max(got[k][1], @as(u32, @intFromFloat(m.end_time))) };
+                    }
+                    reason = e.@"error".message;
+                    if (std.mem.eql(u8, e.type, "speech.error")) continue :tries;
+                    reason = "odd audio byte count";
+                    const done = std.mem.eql(u8, e.type, "speech.done");
+                    if (done and bytes.items.len % 2 == 0) break :tries .{ bytes.items, got };
+                    if (done) continue :tries;
+                } else reason = "no speech.done";
+            } else return fail(w, "{s}: narration: {s}", .{ lang, reason });
+
+            // A sentence without marks gets [e, e] at the previous one's end; no end passes the audio.
+            const encoded = try @import("audio").encode(a, std.mem.bytesAsSlice(i16, pcm), 48000);
+            var end: u32 = 0;
+            for (times) |*time| {
+                if (time[0] == std.math.maxInt(u32)) time.* = .{ end, end };
+                time[1] = @min(time[1], encoded.audio_ms);
+                end = time[1];
+            }
+            const shaped = try a.alloc([]const [2]u32, t.paragraphs.len);
+            var at: usize = 0;
+            for (t.paragraphs, shaped) |p, *s| {
+                s.* = times[at..][0..p.len];
+                at += p.len;
+            }
+            var sha: [32]u8 = undefined;
+            Sha256.hash(input.written(), &sha, .{});
+            t.audio = .{ .audio_ms = encoded.audio_ms, .text_sha256 = try a.dupe(u8, &std.fmt.bytesToHex(sha, .lower)), .times = shaped };
+
+            // The audio files, then story.json, each as a temp file renamed into place.
+            const json_out = try std.json.Stringify.valueAlloc(a, story, .{ .whitespace = .indent_2, .emit_null_optional_fields = false });
+            for ([_][]const u8{ try std.fmt.allocPrint(a, "{s}.opus", .{lang}), try std.fmt.allocPrint(a, "{s}.flac", .{lang}), "story.json" }, [_][]const u8{ encoded.opus, encoded.flac, json_out }) |name, data| {
+                const tmp = try std.fmt.allocPrint(a, "{s}.tmp", .{name});
+                dir.writeFile(io, .{ .sub_path = tmp, .data = data }) catch |err| return fail(w, "{s}/{s}: {t}", .{ folder, name, err });
+                dir.rename(tmp, dir, name, io) catch |err| return fail(w, "{s}/{s}: {t}", .{ folder, name, err });
             }
         }
         return 0;
