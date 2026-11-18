@@ -3,10 +3,10 @@
   "branch": "work/server-write",
   "jira": "",
   "base": "c32b62c41cae86e171e2d6315951797f9e4e596b",
-  "stage": "minimize",
-  "step": "approved",
+  "stage": "finish",
+  "step": "done",
   "round": null,
-  "commit": "afb2c3cb52e97839663c21a9bd8292642381c209",
+  "commit": "95d2f848cfd39149b5d48335e1ce53b115ccac9f",
   "budget": {
     "added": 300,
     "newFiles": 0,
@@ -62,6 +62,12 @@
       "step": "approved",
       "round": null,
       "commit": "afb2c3cb52e97839663c21a9bd8292642381c209"
+    },
+    {
+      "stage": "finish",
+      "step": "done",
+      "round": null,
+      "commit": "95d2f848cfd39149b5d48335e1ce53b115ccac9f"
     }
   ],
   "verify": {
@@ -71,5 +77,6 @@
       "src/server.zig: lang_count 0 answers 'lang: no 'it'' where the spec's rule order requires 'body: wrong length'",
       "src/server.zig: GET /languages writes past its preallocated body when a hand-edited target/translate is not an integer"
     ]
-  }
+  },
+  "clean_branch": "feat/server-write"
 }
