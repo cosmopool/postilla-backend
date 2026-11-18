@@ -4,9 +4,9 @@
   "jira": "",
   "base": "93c1c2af1bd23806a4845df2964ba010d703e328",
   "stage": "minimize",
-  "step": "auto",
+  "step": "approved",
   "round": null,
-  "commit": "75704eb78ce74da339396682d43c83d7cfb553fe",
+  "commit": "f6a9d5b4d492619b7e0d24730e791a75b468c09d",
   "budget": {
     "added": 300,
     "newFiles": 2,
@@ -56,6 +56,12 @@
       "step": "auto",
       "round": null,
       "commit": "75704eb78ce74da339396682d43c83d7cfb553fe"
+    },
+    {
+      "stage": "minimize",
+      "step": "approved",
+      "round": null,
+      "commit": "f6a9d5b4d492619b7e0d24730e791a75b468c09d"
     }
   ],
   "verify": {
