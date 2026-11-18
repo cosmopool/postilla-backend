@@ -4,7 +4,7 @@
 const std = @import("std");
 const c = @import("c");
 const db = @import("server").db;
-const wire = @import("wire");
+const wire = @import("server").wire;
 const words = @import("words");
 
 /// One translation of a story: the story-level fields, the translation and its narration.

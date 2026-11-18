@@ -6,7 +6,7 @@ const std = @import("std");
 const Io = std.Io;
 const c = @import("c");
 pub const db = @import("db.zig");
-const wire = @import("wire.zig");
+pub const wire = @import("wire.zig");
 
 const log = std.log.scoped(.server);
 
