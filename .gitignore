@@ -1,2 +1,6 @@
 .env
 cli.env
+.zig-cache/
+zig-out/
+coverage/
+zig-pkg/

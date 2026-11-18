@@ -520,8 +520,9 @@ Everything comes from env, read and checked once at startup. A missing required 
 
 ## Process
 
-- A self-contained Zig project, with its own `build.zig` and `build.zig.zon`. `zig build` makes both executables, which share source files. Both vendor the SQLite amalgamation: the server for `postilla.db`, the CLI to read `dict.db`.
-- **`postilla-server`:** thread per connection on `std.http.Server`. Each thread opens its own SQLite connection; the database runs in WAL mode with a busy timeout so reads never block on a publish. It makes no outbound calls.
+- A self-contained Zig project (Zig 0.17), with its own `build.zig` and `build.zig.zon`. `zig build` makes both executables into `zig-out/bin/`, and they share source files in `src/`: `server.zig` and `cli.zig` are the two entry points, `wire.zig` the binary encoding every body shares, `db.zig` the SQLite wrapper.
+- SQLite is the amalgamation (3.53.2), a `build.zig.zon` dependency by URL and hash, compiled in multi-thread mode (`SQLITE_THREADSAFE=2`): every thread opens its own connection, and no connection is shared. Both executables link it: the server for `postilla.db`, the CLI to read `dict.db`.
+- **`postilla-server`:** every connection runs as its own concurrent task on `std.Io.Threaded`, so one OS thread per connection, on `std.http.Server`. It closes a connection after a response when the request isn't keep-alive. Each connection opens its own SQLite connection; the database runs in WAL mode (`synchronous = NORMAL`) with a 5 s busy timeout, so readers never wait on a publish and a second writer waits for the first instead of failing. It makes no outbound calls.
 - **`postilla`:** one process per command, single-threaded. It vendors libopus, libopusenc and libFLAC, makes HTTPS client calls to OpenCode, Speechify, R2 and the server, and signs its R2 uploads and downloads with SigV4.
 
 ## Deployment
@@ -532,7 +533,9 @@ Everything comes from env, read and checked once at startup. A missing required 
 
 ## Tests
 
-Integration tests through the public entry points only (see `.agents/rules/testing.md`): HTTP for the server, and for the CLI its commands run on a temp story folder against a real server. Each suite gets a free port and a temp SQLite file. Malformed `since`, `lang` and `STRY` bodies are integration cases like any other.
+Integration tests through the public entry points only (see `.agents/rules/testing.md`): HTTP for the server, and for the CLI its commands run on a temp story folder against a real server. Each suite gets a free port and a temp SQLite file.
+
+`zig build test` runs every `test/*.zig` (each its own test binary) except `test/harness.zig`, which starts the real server in-process on a free port with a temp SQLite file under `.zig-cache/tmp/`, and sends raw HTTP over TCP so a test can send any bytes. `-Dtest-file=test/<name>.zig` runs one file; `-Dcoverage` runs them under `kcov` into `coverage/kcov`. Malformed `since`, `lang` and `STRY` bodies are integration cases like any other.
 
 OpenCode, Speechify and R2 are system boundaries. Tests point their base URLs at local fake servers that return recorded responses, so no test spends credits or needs network access. The Italian moderation test set is the exception: it calls Jev for real and runs only on demand.
 
