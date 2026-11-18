@@ -4,44 +4,16 @@
   "jira": "",
   "base": "aacef22ecee1528252e039b27342be19877fcdc7",
   "stage": "minimize",
-  "step": "auto",
+  "step": "approved",
   "round": null,
-  "commit": "87592a8196b3925b4ab7a09bbc69f571caee52b9",
+  "commit": "9c2c22e2efa17935039cc108742bc141e8e52b74",
   "budget": {
     "added": 450,
     "newFiles": 0,
     "newSymbols": 2
   },
   "api": "settled",
-  "pending": {
-    "kind": "deletion-queue",
-    "queue": [
-      {
-        "file": "src/cli.zig",
-        "line": 33,
-        "construct": "defer out.interface.flush() catch {};",
-        "class": "defensive",
-        "reason": "It guards a stderr write. stderr is not in the configured I/O boundary list, and no AC asserts what happens when stderr fails. The catch exists because run returns u8, not an error union.",
-        "riskIfWrong": "Removing the catch without changing run's return type does not compile. If the flush were dropped altogether, every buffered line, including the failure line ACs check, would be lost."
-      },
-      {
-        "file": "src/cli.zig",
-        "line": 35,
-        "construct": "out.interface.writeAll(usage) catch {};",
-        "class": "defensive",
-        "reason": "It swallows a failed stderr write of the usage text. stderr is not a listed boundary and no AC covers it. The exit code 2 path is the same with or without the catch.",
-        "riskIfWrong": "Does not compile without it while run returns u8."
-      },
-      {
-        "file": "src/cli.zig",
-        "line": 43,
-        "construct": "w.print(format ++ \"\\n\", args) catch {};",
-        "class": "defensive",
-        "reason": "It swallows a failed stderr print in the fail helper. stderr is not a listed boundary, and no AC asks for behaviour when stderr cannot be written.",
-        "riskIfWrong": "Does not compile without it while fail returns u8."
-      }
-    ]
-  },
+  "pending": null,
   "history": [
     {
       "stage": "open",
@@ -96,6 +68,12 @@
       "step": "auto",
       "round": null,
       "commit": "87592a8196b3925b4ab7a09bbc69f571caee52b9"
+    },
+    {
+      "stage": "minimize",
+      "step": "approved",
+      "round": null,
+      "commit": "9c2c22e2efa17935039cc108742bc141e8e52b74"
     }
   ],
   "verify": {
