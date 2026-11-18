@@ -288,8 +288,9 @@ fn command(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, fol
             const body = try std.json.Stringify.valueAlloc(a, .{ .input = input.written(), .voice_id = voice[0], .model = "simba-3.5", .language = voice[1], .output_format = "pcm_48000", .options = .{ .loudness_normalization = true } }, .{});
 
             // 3 tries: a stream with speech.error, an event that isn't JSON or base64 audio,
-            // an odd byte count or no speech.done starts the next. A mark's sentence is the
-            // one its start falls in; the sentence runs from its first mark to its last.
+            // a mark time outside u32 ms, an odd byte count or no speech.done starts the next.
+            // A mark's sentence is the one its start falls in; the sentence runs from its first
+            // mark to its last.
             var reason: []const u8 = "";
             const pcm: []align(2) u8, const times: [][2]u32 = tries: for (0..3) |_| {
                 const res = outbound.request(io, a, .{}, .POST, url, &headers, body, "") catch |err| return fail(w, "{s}: narration: {t}", .{ lang, err });
@@ -308,6 +309,8 @@ fn command(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, fol
                     for (e.speech_marks) |m| {
                         var k = got.len - 1;
                         while (starts.items[k] > m.start) k -= 1;
+                        reason = "a mark's time is out of range";
+                        if (!(m.start_time >= 0 and m.end_time >= 0 and m.start_time < 0x1p32 and m.end_time < 0x1p32)) continue :tries;
                         got[k] = .{ @min(got[k][0], @as(u32, @intFromFloat(m.start_time))), @max(got[k][1], @as(u32, @intFromFloat(m.end_time))) };
                     }
                     reason = e.@"error".message;
