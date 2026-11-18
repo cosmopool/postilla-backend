@@ -327,6 +327,24 @@ test "AC-F1: a malformed or oversized request head gets 400 bad request head and
     try expectEqualStrings("text/plain", oversized.header("content-type"));
     try expectEqualStrings("bad request head\n", oversized.body);
 
+    // The server closes after the 400 instead of reading on: the valid request that
+    // follows an oversized head goes unanswered.
+    const oversized_then_valid = try Response.parse(try raw(
+        &h,
+        "GET /languages HTTP/1.1\r\nhost: test\r\nx-pad: " ++ rep('a', 9000) ++ "\r\n\r\n" ++
+            "GET /languages HTTP/1.1\r\nhost: test\r\nconnection: close\r\n\r\n",
+        0,
+        &buf,
+    ));
+    try expectEqual(400, oversized_then_valid.status);
+    try expectEqualStrings("bad request head\n", oversized_then_valid.body);
+
+    // A head that never ends: the 400 comes once 8 KiB have arrived, not at the idle timeout.
+    const endless = try Response.parse(try raw(&h, "GET /languages HTTP/1.1\r\nx-pad: " ++ rep('a', 9000), 0, &buf));
+    try expectEqual(400, endless.status);
+    try expectEqualStrings("text/plain", endless.header("content-type"));
+    try expectEqualStrings("bad request head\n", endless.body);
+
     try expectBody(&h, "GET /languages HTTP/1.1", languages);
 }
 
@@ -340,6 +358,27 @@ test "AC-F2: a connection that sends nothing for idle_timeout_ms is closed" {
     var buf: [4096]u8 = undefined;
     const late = try raw(&h, "GET /languages HTTP/1.1\r\nhost: test\r\nconnection: close\r\n\r\n", 600, &buf);
     try expectEqualStrings("", late);
+
+    // A kept-alive connection that goes quiet after its first answer is closed too: the
+    // request sent after the timeout goes unanswered.
+    {
+        const address = try Io.net.IpAddress.parse("127.0.0.1", h.port);
+        const stream = try address.connect(io, .{ .mode = .stream });
+        defer stream.close(io);
+        var out_buf: [4096]u8 = undefined;
+        var out = stream.writer(io, &out_buf);
+        try out.interface.writeAll("GET /languages HTTP/1.1\r\nhost: test\r\n\r\n");
+        try out.interface.flush();
+        var in = stream.reader(io, &buf);
+        while (std.mem.indexOf(u8, in.interface.buffered(), languages) == null) try in.interface.fillMore();
+        try io.sleep(.fromMilliseconds(600), .awake);
+        out.interface.writeAll("GET /languages HTTP/1.1\r\nhost: test\r\nconnection: close\r\n\r\n") catch {};
+        out.interface.flush() catch {};
+        while (true) in.interface.fillMore() catch break;
+        const first = try Response.parse(in.interface.buffered());
+        try expectEqual(200, first.status);
+        try expectEqualSlices(u8, languages, first.body);
+    }
 
     // A client that doesn't wait still gets its answer.
     try expectBody(&h, "GET /languages HTTP/1.1", languages);
@@ -361,6 +400,15 @@ test "AC-F3: a SQLite error answers 500 with no body and the connection keeps se
     try expectEqual(200, next.status);
     try expectEqualStrings("application/octet-stream", next.header("content-type"));
     try expectEqualSlices(u8, languages, next.body);
+
+    // A list whose table is gone fails the same way, and the connection keeps serving.
+    try h.sql("DROP TABLE tag;");
+    const list = try h.send("GET /tags HTTP/1.1\r\nhost: test\r\n\r\nGET /genres HTTP/1.1", "", &buf);
+    try expectEqual(500, list.status);
+    try expectEqualStrings("0", list.header("content-length"));
+    const after = try Response.parse(list.body);
+    try expectEqual(200, after.status);
+    try expectEqualSlices(u8, genres, after.body);
 }
 
 test "AC-F4: startup fails on a newer schema or a database path in a missing directory" {
@@ -374,6 +422,11 @@ test "AC-F4: startup fails on a newer schema or a database path in a missing dir
         listener.deinit(io);
         return error.TestExpectedError;
     } else |_| {}
+    // The refused startup left the newer database as it found it.
+    try h.sql(
+        \\CREATE TEMP TABLE ok (v CHECK (v));
+        \\INSERT INTO ok SELECT user_version = 2 FROM pragma_user_version;
+    );
 
     var path_buf: [256]u8 = undefined;
     var config = h.config;
