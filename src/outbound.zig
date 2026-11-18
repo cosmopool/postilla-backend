@@ -1,5 +1,6 @@
 //! One outbound HTTP call with the owner's retry schedule and timeouts
-//! (docs/specification.md, Retries). Every outside service goes through `request`.
+//! (docs/specification.md, Retries). Every outside service goes through `request`, which
+//! sends `user-agent: postilla/1.0` and `accept-encoding: identity`.
 
 const std = @import("std");
 const Io = std.Io;
@@ -50,7 +51,12 @@ pub fn request(io: Io, a: Allocator, retry: Retry, method: std.http.Method, url:
 /// 429's or 503's Retry-After into `wait`.
 fn send(client: *std.http.Client, method: std.http.Method, uri: std.Uri, headers: []const std.http.Header, body: []u8, events: *[2]Io.Event, got: *[]u8, wait: *u64) !std.http.Status {
     defer for (events) |*e| e.set(client.io);
-    var req = try client.request(method, uri, .{ .extra_headers = headers });
+    // The client's own user-agent (`zig/…`) would come first; OpenCode Go asks for the caller's.
+    // The client asks for gzip by default but `got` is read as sent, so ask for no encoding.
+    var req = try client.request(method, uri, .{ .headers = .{
+        .user_agent = .{ .override = "postilla/1.0" },
+        .accept_encoding = .{ .override = "identity" },
+    }, .extra_headers = headers });
     defer req.deinit();
     errdefer req.connection.?.closing = true;
     events[0].set(client.io);
