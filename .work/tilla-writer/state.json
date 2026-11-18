@@ -3,10 +3,10 @@
   "branch": "work/tilla-writer",
   "jira": "",
   "base": "f2367df566fc9e667c24616ce74e0f89021bb2ac",
-  "stage": "open",
-  "step": "approved",
+  "stage": "build",
+  "step": "tests",
   "round": null,
-  "commit": "f2367df566fc9e667c24616ce74e0f89021bb2ac",
+  "commit": "c8cd3e027ba19c4762c9ca8e6c76b2727ec4cff4",
   "budget": {
     "added": 220,
     "newFiles": 1,
@@ -20,6 +20,12 @@
       "step": "approved",
       "round": null,
       "commit": "f2367df566fc9e667c24616ce74e0f89021bb2ac"
+    },
+    {
+      "stage": "build",
+      "step": "tests",
+      "round": null,
+      "commit": "c8cd3e027ba19c4762c9ca8e6c76b2727ec4cff4"
     }
   ]
 }
