@@ -1,0 +1,25 @@
+{
+  "slug": "r2",
+  "branch": "work/r2",
+  "jira": "",
+  "base": "93c1c2af1bd23806a4845df2964ba010d703e328",
+  "stage": "open",
+  "step": "approved",
+  "round": null,
+  "commit": "93c1c2af1bd23806a4845df2964ba010d703e328",
+  "budget": {
+    "added": 300,
+    "newFiles": 2,
+    "newSymbols": 3
+  },
+  "api": "settled",
+  "pending": null,
+  "history": [
+    {
+      "stage": "open",
+      "step": "approved",
+      "round": null,
+      "commit": "93c1c2af1bd23806a4845df2964ba010d703e328"
+    }
+  ]
+}
