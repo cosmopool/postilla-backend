@@ -44,11 +44,11 @@ CREATE TABLE form  (form TEXT NOT NULL, form_norm TEXT NOT NULL, entry_id INTEGE
 -- índices: entry(word), entry(word_norm), form(form), form(form_norm)
 ```
 
-- `entry`: uma linha por lema e classe. `word` com a grafia original; `word_norm` minúscula e sem acento (ARQ-63).
+- `entry`: uma linha por lema e classe. `word` com a grafia original; `word_norm` normalizado pelo módulo `words` do postilla-backend (minúscula, sem acento; ARQ-63).
 - `pos`: a classe em italiano (`sostantivo`, `verbo`, `aggettivo`, `avverbio`, `nome proprio`, `locuzione`…).
 - `band`: faixa do NVdB (ARQ-64): 0 fora · 1 fondamentale · 2 alto uso · 3 alta disponibilità. Não há rank dentro da faixa: o NVdB só publica as faixas.
 - `form`: forma → lema, inclusive as das tabelas de conjugação com clítico ("si siede" → *sedersi*), o particípio e o gerúndio. Uma forma pode levar a mais de um lema ("porta" → *portare*, *porgere*).
-- `entry.id` muda a cada build: ninguém o guarda (ARQ-35). Um `.tilla` guarda só spans de palavra; o app procura o texto do span por forma (`form`, depois `form_norm`).
+- `entry.id` muda a cada build: ninguém o guarda (ARQ-35). Um `.tilla` guarda só spans de palavra; o app procura o texto do span pela cadeia de busca de `postilla-backend/docs/tilla.md` (seção Words): `form`, depois `form_norm`, depois, numa palavra elidida (*l'aria*), a parte depois do apóstrofo.
 - `meta`: `version`, `wiktionary_dump` (data do dump, AAAA-MM-DD), `license`, `attribution` e uma linha `source.<arquivo>` por fonte, com URL e sha256.
 
 O CLI do backend (`postilla publish`) também lê `dict.db`, para `band_words` de cada `.tilla`: cada palavra conta na faixa mais comum entre os lemas a que sua forma leva (1 antes de 2, antes de 3, antes de 0); forma sem lema conta como 0.
@@ -76,7 +76,7 @@ O CLI do backend (`postilla publish`) também lê `dict.db`, para `band_words` d
 
 ## Palavra
 
-A regra que o backend usa para os spans de palavra de cada `.tilla`, em todas as línguas, e que as formas de `form` devem seguir para que a busca do app as encontre: letras e dígitos; o apóstrofo e o hífen entre letras unem (*l'aria*, *c'è*, *porta-finestra*); o apóstrofo final fica nos truncamentos (*po'*, *va'*). Pontuação nunca é palavra.
+A regra de palavra, a normalização e a cadeia de busca estão definidas em `postilla-backend/docs/tilla.md` (seção Words) e implementadas uma vez, no módulo `words` do postilla-backend (`src/words.zig`). O build importa esse módulo para dividir as formas e calcular `form_norm` e `word_norm`, de modo que os spans dos `.tilla`, o `band_words` e a busca do app vejam as mesmas strings.
 
 ## Arquivos-fonte escritos à mão
 

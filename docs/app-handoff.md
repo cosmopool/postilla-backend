@@ -35,7 +35,7 @@ What the Postilla learner app has to do with what the backend and postilla-conte
 ## 5. Word lookup
 
 - Offer word lookup only in the target language (restating TRA-04). Every translation carries word spans, but only the target's are tappable.
-- On tap, take the text under the span and look it up in the device's `dict.db`: `form`, then `form_norm` if nothing matches. Show every lemma the form leads to ("porta" → *porta*, *portare*, *porgere*). Never store `entry.id`: it changes with every dictionary build (ARQ-35).
+- On tap, take the text under the span and look it up in the device's `dict.db` by the lookup chain in [tilla.md, Words](tilla.md#words): `form`, then `form_norm`, then, for an elided word (*l'aria*), the part after the apostrophe. Normalize with the Dart table that postilla-backend generates (`zig build dart`), never with `toLowerCase()` or Unicode decomposition, whose results differ between platforms; the table gives the same bytes as the dictionary build's `form_norm`. The app never splits words itself: spans come from the `.tilla`. Show every lemma the form leads to ("porta" → *porta*, *portare*, *porgere*). Never store `entry.id`: it changes with every dictionary build (ARQ-35).
 - **Span units.** Spans count UTF-8 bytes of the sentence text. Dart indexes a `String` in UTF-16 units, so map byte offsets to `String` indices once per sentence with a byte → index table (count one unit per UTF-8 lead byte, two for a 4-byte sequence). A benchmark put this at about 0.1 ms for a 5,000-word story on a desktop CPU. Don't decode each word separately: it's about 3× slower and gives no indices for highlighting.
 
 ## 6. Audio

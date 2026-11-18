@@ -60,9 +60,53 @@ A word:
 | `start` | `u16` | Byte offset of the word's first byte in `text` |
 | `end` | `u16` | Byte offset just past its last byte |
 
-A word is only a span: the file never names a dictionary entry; the app looks words up by form ([app-handoff.md](app-handoff.md#5-word-lookup)). So `dict.db` entry ids are free to change between builds (ARQ-35), and a dictionary rebuild never touches a published story. Every word is listed, in every language, by the same word rule: letters and digits; an apostrophe or hyphen between letters joins (*l'aria*, *c'è*, *porta-finestra*); a final apostrophe stays in truncations (*po'*, *va'*); punctuation is never a word ([CONTRACT.md](CONTRACT.md)). Every translation carries its spans, so a language that is native today can become a target later without republishing; which spans the app makes tappable is in [app-handoff.md](app-handoff.md#5-word-lookup). Spans count UTF-8 bytes of `text`, the same unit as its `str` length, so the file has one unit and one byte order throughout; this replaces the old `stories.db` spans, which were little-endian UTF-16 units of the whole paragraph.
+A word is only a span: the file never names a dictionary entry; the app looks words up by form ([app-handoff.md](app-handoff.md#5-word-lookup)). So `dict.db` entry ids are free to change between builds (ARQ-35), and a dictionary rebuild never touches a published story. Every word is listed, in every language, by the word rule in [Words](#words). Every translation carries its spans, so a language that is native today can become a target later without republishing; which spans the app makes tappable is in [app-handoff.md](app-handoff.md#5-word-lookup). Spans count UTF-8 bytes of `text`, the same unit as its `str` length, so the file has one unit and one byte order throughout; this replaces the old `stories.db` spans, which were little-endian UTF-16 units of the whole paragraph.
 
 Paragraph *p*, sentence *s* is the same sentence in every translation of the story, so two translations line up by index.
+
+## Words
+
+The word rule, the normalization and the lookup are one piece of Zig code, `src/words.zig` in postilla-backend, exported by its `build.zig` as the module `words`. The CLI uses it to write spans and compute `band_words`; the postilla-content dictionary build imports the same module (a `build.zig.zon` dependency on postilla-backend) to split and normalize its `form` and `form_norm` columns; the learner app gets the normalization as a Dart table generated from the same source (`zig build dart`). This section is what that code does. A change to any of it changes spans or lookups, so it ships as one change to the module, its generated Dart table and this section.
+
+### Characters
+
+- **Letter:** `A`–`Z`, `a`–`z`, and U+00C0–U+024F except `×` (U+00D7) and `÷` (U+00F7): Latin-1 Supplement and Latin Extended-A and B, which cover Italian, Portuguese and the Italian dialects. A combining accent (U+0300–U+036F) right after a letter counts as part of that letter. Any other script is not a letter until this range grows.
+- **Digit:** `0`–`9`.
+- **Apostrophe:** `'` (U+0027), `’` (U+2019), `ʼ` (U+02BC).
+- **Hyphen:** `-` (U+002D), `‐` (U+2010), `‑` (U+2011).
+- Everything else separates words and is never part of one.
+
+### The word rule
+
+1. A word is a run of letters and digits (`casa`, `1860`, `A1`).
+2. An apostrophe or a hyphen with a **letter** right before it and a **letter** right after it joins the two runs into one word: *l'aria*, *c'è*, *dell’anno*, *porta-finestra*. Between digits, or between a letter and a digit, it separates: `3,5` and `3-5` are two words each, and `anni '80` is `anni` and `80`.
+3. An apostrophe at the edge of a word belongs to it only for the words in two closed lists, matched on the word's normalized text:
+   - **Final apostrophe** (truncations): *po, va, fa, da, di, sta, to, mo, be, ca, pie, vo, te*. So *po'* and *va’* are words; in *'casa'*, used as a quotation, both apostrophes are separators.
+   - **Leading apostrophe** (colloquial clippings): *sto, sta, sti, ste, na, ndrangheta*. So *'sto* and *'na* are words.
+
+   The final apostrophe must not be followed by a letter or digit, and the leading one must not be preceded by one; otherwise rule 2 or rule 1 applies.
+4. A span is the word's byte range in the sentence text, `start` to `end`, including any joined or edge apostrophes and hyphens as they are written. Spans keep the original characters; only lookups normalize.
+
+### Normalization
+
+`form_norm`, `word_norm` and every lookup use the same function, character by character:
+
+- A letter becomes its lowercase base letter with every mark removed: `À`, `à`, `á`, `â` → `a`; `Ç` → `c`; `Ñ` → `n`. Letters with no decomposition take their closest base: `ø` → `o`, `đ` → `d`, `ł` → `l`, `ħ` → `h`. The ligatures `æ`, `œ`, `ß` become `ae`, `oe`, `ss`.
+- A combining accent is dropped.
+- Every apostrophe becomes `'` and every hyphen `-`.
+- Digits and every other character stay as they are.
+
+The letter table covers the whole letter range above. It was generated once from Python's `unicodedata` (decompose, drop marks, lowercase) plus the hand-written entries for letters that don't decompose, and is committed as a literal table in `words.zig`; nothing reads Unicode data at build or run time, so every program and platform gives the same bytes. The output is UTF-8.
+
+### Looking a word up
+
+The CLI (for `band_words`) and the app (on tap) look a word up in `dict.db` the same way, and stop at the first step that finds a form:
+
+1. `form` = the word as written.
+2. `form_norm` = the normalized word.
+3. If the word has an apostrophe between two letters, steps 1 and 2 again on the part after the last such apostrophe: *l'aria* → *aria*, *dell'anno* → *anno*, *c'è* → *è*.
+
+A word that finds nothing has no lemma: on tap the app says so, and in `band_words` it counts as band 0.
 
 ## Reader rules
 

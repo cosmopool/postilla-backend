@@ -148,7 +148,7 @@ dict/<sha256>.db.gz                         a dictionary build
 - A republish whose audio didn't change gives the same `.opus` and `.flac` keys, so no app downloads them again. The `.tilla` names its `.opus` by `opus_sha256`.
 - The app builds each `.tilla.gz` URL from a feed record's `id`, `lang` and `sha256`, and the `.opus` URL from the `.tilla`.
 - A translation without narration has no `.opus` or `.flac`; its `.tilla` has `audio_ms` 0.
-- `stories/` is written only by `postilla publish`; the server never touches R2. The `dict/` keys belong to the postilla-content build ([content-handoff.md](content-handoff.md#3-publishing-dictdb)); the CLI only reads them, and the build never touches `stories/`.
+- `stories/` is written only by `postilla publish`; the server never touches R2. The `dict/` keys belong to the postilla-content build ([content-handoff.md](content-handoff.md#4-publishing-dictdb)); the CLI only reads them, and the build never touches `stories/`.
 
 ## Endpoints
 
@@ -411,7 +411,7 @@ Builds every translation's `.tilla`, uploads the files and publishes the story. 
 
 `band_words` is four counts: how many of an Italian translation's `words` fall in each NVdB band, using `entry.band` from `dict.db` (0 outside · 1 fondamentale · 2 alto uso · 3 alta disponibilità). The four add up to `words`. Counts, not percentages, so they stay integers and the app computes the share.
 
-A word takes the most common band among the lemmas its form leads to in `dict.db` (1 before 2 before 3 before 0): "porta" (*portare* 1, *porgere* 2) counts as band 1. A form with no lemma counts as band 0. The CLI looks forms up the same way the app does on tap ([CONTRACT.md](CONTRACT.md)).
+A word takes the most common band among the lemmas its form leads to in `dict.db` (1 before 2 before 3 before 0): "porta" (*portare* 1, *porgere* 2) counts as band 1. A word with no lemma counts as band 0. Words are split, normalized and looked up by the shared `words` module, the same way the app looks them up on tap ([tilla.md, Words](tilla.md#words)).
 
 The CLI gets `dict.db` the same way the app does: it reads `dict/latest` from the public bucket, downloads that build into `POSTILLA_DICT_DIR` if it doesn't have it, and computes `band_words` from it. It keeps only the current build there and deletes older ones once it has switched. An R2 failure there is a failed try like any other R2 call. An older story's `band_words` reflect the bands at its publish time until it is republished.
 
@@ -523,6 +523,7 @@ Everything comes from env, read and checked once at startup. A missing required 
 - A self-contained Zig project (Zig 0.17), with its own `build.zig` and `build.zig.zon`. `zig build` makes both executables into `zig-out/bin/`, and they share source files in `src/`: `server.zig` and `cli.zig` are the two entry points, `wire.zig` the binary encoding every body shares, `db.zig` the SQLite wrapper.
 - SQLite is the amalgamation (3.53.2), a `build.zig.zon` dependency by URL and hash, compiled in multi-thread mode (`SQLITE_THREADSAFE=2`): every thread opens its own connection, and no connection is shared. Both executables link it: the server for `postilla.db`, the CLI to read `dict.db`.
 - **`postilla-server`:** every connection runs as its own concurrent task on `std.Io.Threaded`, so one OS thread per connection, on `std.http.Server`. It closes a connection after a response when the request isn't keep-alive. Each connection opens its own SQLite connection; the database runs in WAL mode (`synchronous = NORMAL`) with a 5 s busy timeout, so readers never wait on a publish and a second writer waits for the first instead of failing. It makes no outbound calls.
+- **`words`:** `src/words.zig`, the word rule, the normalization and the lookup chain ([tilla.md, Words](tilla.md#words)), with no dependencies. `build.zig` exports it as a module, so postilla-content imports the same code through a `build.zig.zon` dependency on this repo; SQLite is a lazy dependency, so importing `words` doesn't fetch it. `zig build dart` writes the app's normalization table (`zig-out/dart/words_norm.dart`) from the same source.
 - **`postilla`:** one process per command, single-threaded. It vendors libopus, libopusenc and libFLAC, makes HTTPS client calls to OpenCode, Speechify, R2 and the server, and signs its R2 uploads and downloads with SigV4.
 
 ## Deployment
