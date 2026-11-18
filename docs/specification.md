@@ -131,10 +131,10 @@ Cursors are `max(cursor) + 1`, so a Litestream restore that loses the last secon
 
 ## Files in R2
 
-All files are in one public bucket, keyed by story id, language and the sha256 of the file itself:
+All files are in one public bucket, keyed by story id, language and a sha256 of the content:
 
 ```
-stories/<id>/<lang>/<sha256>.tilla.gz       one translation (tilla.md); sha256 of the .gz
+stories/<id>/<lang>/<sha256>.tilla.gz       one translation (tilla.md); sha256 of the .tilla before gzip
 stories/<id>/<lang>/<opus_sha256>.opus      its narration for the app: Ogg Opus, 16 kbps, mono
 stories/<id>/<lang>/<flac_sha256>.flac      narration master: lossless, never downloaded by the app
 dict/latest                                 pointer to the current dictionary (CONTRACT.md)
@@ -183,12 +183,12 @@ Then `count` records, ascending by `cursor`, one per translation in the listed l
 | `id` | `uuid` | Story id |
 | `lang` | `lang` | The translation's language |
 | `change` | `u8` | What happened last to that translation: 1 `published` (new or changed) or 2 `removed` |
-| `sha256` | `sha256` | sha256 of the translation's `.tilla.gz`; all zero when `removed` |
+| `sha256` | `sha256` | sha256 of the translation's `.tilla`, before gzip; all zero when `removed` |
 | `cursor` | `u32` | The translation's cursor |
 
 Each record is 61 bytes, so the body is `9 + 61 × count` bytes. When nothing is new the body is the 9-byte header with `count` 0. Removed translations are returned like any other, `since=0` included. What the app does with each record: [app-handoff.md](app-handoff.md#2-syncing).
 
-### `POST /stories?force=<0|1>`
+### `POST /stories`
 
 Publishes or republishes every translation of one story, whose files are already in R2 under the keys in [Files in R2](#files-in-r2). `postilla publish` uploads them first; the server doesn't check that they exist. Body:
 
@@ -204,7 +204,7 @@ Then `lang_count` translations:
 | Field | Type | Value |
 |---|---|---|
 | `lang` | `lang` | The translation's language |
-| `sha256` | `sha256` | sha256 of its `.tilla.gz` |
+| `sha256` | `sha256` | sha256 of its `.tilla`, before gzip |
 
 The body is `22 + 40 × lang_count` bytes. The boundary parse rejects with 400 when any of these fail:
 
@@ -213,9 +213,7 @@ The body is `22 + 40 × lang_count` bytes. The boundary parse rejects with 400 w
 3. Every `lang` is non-empty ASCII followed only by zero bytes, and no `lang` repeats.
 4. One `lang` is `it`, the original.
 
-`force` is `0` or `1`; when it is missing it counts as 0, and any other value gets a 400.
-
-Past the parse, a `lang` not in `language` gets a 400 (`lang: unknown id 'fr'`), and a removed story id gets a 409 (`story removed`). A story that already has a published translation in a language the body doesn't carry gets a 409 (`pt-BR: published, missing from body`), so a republish can't leave an old translation next to a new original with different paragraph counts. With `force=1` that check is skipped and the missing translation keeps its row and cursor as they are.
+Past the parse, a `lang` not in `language` gets a 400 (`lang: unknown id 'fr'`), and a removed story id gets a 409 (`story removed`). A story that already has a published translation in a language the body doesn't carry gets a 409 (`pt-BR: published, missing from body`), so a republish can't leave an old translation next to a new original with different paragraph counts. There is no override: a republish carries every language the story was published in.
 
 Then, in one `BEGIN IMMEDIATE` transaction, every translation in the body is upserted: a row whose sha256 changed, or that is new, gets `change` `published` and the next cursor; a row whose sha256 is the same keeps its cursor ([Cursor](#cursor)). So a syncing app sees all of a story's changed translations or none.
 
@@ -242,11 +240,10 @@ No body. `<id>` is the story UUID in its written form.
 | Code | When |
 |---|---|
 | 200 | Success |
-| 400 | Bad `since`, `lang` or `force`; a story id that isn't a UUID; a body that fails the parse; a `lang` not in `language` |
+| 400 | Bad `since` or `lang`; a story id that isn't a UUID; a body that fails the parse; a `lang` not in `language` |
 | 401 | Missing or wrong bearer token on `POST /stories` or `DELETE /stories/<id>` |
-| 404 | Any other path, or an unknown story id on `DELETE` |
-| 405 | Any other method on a known path |
-| 409 | `POST /stories` for a removed story, or without a published translation of the story and without `force=1` |
+| 404 | Any other path or method, or an unknown story id on `DELETE` |
+| 409 | `POST /stories` for a removed story, or without one of the story's published translations |
 | 500 | SQLite error |
 
 ## The CLI
@@ -256,7 +253,7 @@ No body. `<id>` is the story UUID in its written form.
 ```
 postilla translate <folder> [--force] [--redo <lang>]   moderate the Italian, translate the missing languages
 postilla narrate   <folder>                             narrate every language with target 1
-postilla publish   <folder> [--force]                   build the .tilla files, upload to R2, POST /stories
+postilla publish   <folder>                             build the .tilla files, upload to R2, POST /stories
 ```
 
 The CLI reads the lists from the server's public endpoints (`GET /languages`, `GET /genres`, `GET /tags`, `GET /authors` at `POSTILLA_SERVER_URL`), so it never needs `postilla.db`. A command that fails prints one line naming the step and the reason and exits non-zero, leaving `story.json` as it was before that step.
@@ -397,7 +394,7 @@ The input is the translation's paragraphs joined in reading order. The CLI reads
 The stream yields three outputs:
 
 - **Sentence times:** each sentence's `start_ms` and `end_ms` run from its first word's `start_time` to its last word's `end_time`. Words are matched to sentences by mapping the marks' character offsets onto the sentences.
-- **App audio:** the PCM is encoded once with vendored libopus to the Ogg Opus `.opus` that tilla.md describes (16 kbps, mono), written as `<lang>.opus`. Its length is the translation's `audio_ms`.
+- **App audio:** the PCM is encoded once to the Ogg Opus `.opus` that tilla.md describes (16 kbps, mono), written as `<lang>.opus`, with vendored libopusenc over vendored libopus. libopusenc writes the Ogg container (headers, pages, pre-skip, end trimming) and resamples to a rate Opus takes, so the CLI writes no container code. `audio_ms` is the PCM's length: its sample count ÷ its sample rate × 1000.
 - **Master:** the same PCM is also compressed to FLAC with vendored libFLAC, written as `<lang>.flac`. It is a lossless copy kept for re-encoding later. The app never downloads it.
 
 The times, `audio_ms` and the sha256 of the input text go to the translation's `audio` in `story.json`. Listen to the `.opus` before publishing.
@@ -422,9 +419,9 @@ A `.tilla` word is only a span, looked up by form; `dict.db` entry ids change be
 
 #### Building and uploading
 
-The CLI writes one `.tilla` per translation ([tilla.md](tilla.md)): the story-level fields, the translation's title, subtitle and sentences, its word spans by the word rule in tilla.md, `words`, `band_words`, and, for a narrated translation, `audio_ms`, `opus_sha256`, `opus_size` and the sentence times. The gzip is deterministic, so an unchanged translation gives the same `.tilla.gz` and sha256.
+The CLI writes one `.tilla` per translation ([tilla.md](tilla.md)): the story-level fields, the translation's title, subtitle and sentences, its word spans by the word rule in tilla.md, `words`, `band_words`, and, for a narrated translation, `audio_ms`, `opus_sha256`, `opus_size` and the sentence times. The sha256 is taken of the `.tilla` before gzip, so an unchanged translation keeps its sha256, its key and its cursor whatever the gzip library or level does; the gzip needs no fixed settings.
 
-It uploads every translation's `.tilla.gz`, `.opus` and `.flac` to R2 under the keys in [Files in R2](#files-in-r2). Keys are content-addressed, so uploading a file that is already there writes the same bytes again. Last, after every file is in R2, it sends `POST /stories` with every translation's `lang` and `sha256` (`force=1` with `--force`), and the server takes the cursors. A 409 for a missing published translation means the folder lacks a language the story was published in: add it, or pass `--force` to leave that translation as it is.
+It uploads every translation's `.tilla.gz`, `.opus` and `.flac` to R2 under the keys in [Files in R2](#files-in-r2). Keys are content-addressed, so uploading a file that is already there writes the same bytes again. Last, after every file is in R2, it sends `POST /stories` with every translation's `lang` and `sha256`, and the server takes the cursors. A 409 for a missing published translation means the folder lacks a language the story was published in: add it back.
 
 ### Retries
 
@@ -438,7 +435,7 @@ After the third failed try, the command stops with the step that failed and the 
 CREATE TABLE story (
   id        BLOB NOT NULL,              -- 16 bytes
   lang      TEXT NOT NULL REFERENCES language(id),
-  sha256    BLOB NOT NULL,              -- 32 bytes of the .tilla.gz; kept when removed
+  sha256    BLOB NOT NULL,              -- 32 bytes, of the .tilla before gzip; kept when removed
   change    INTEGER NOT NULL,           -- 1 published, 2 removed
   cursor    INTEGER NOT NULL UNIQUE,
   PRIMARY KEY (id, lang)
@@ -525,7 +522,7 @@ Everything comes from env, read and checked once at startup. A missing required 
 
 - A self-contained Zig project, with its own `build.zig` and `build.zig.zon`. `zig build` makes both executables, which share source files. Both vendor the SQLite amalgamation: the server for `postilla.db`, the CLI to read `dict.db`.
 - **`postilla-server`:** thread per connection on `std.http.Server`. Each thread opens its own SQLite connection; the database runs in WAL mode with a busy timeout so reads never block on a publish. It makes no outbound calls.
-- **`postilla`:** one process per command, single-threaded. It vendors libopus and libFLAC, makes HTTPS client calls to OpenCode, Speechify, R2 and the server, and signs its R2 uploads and downloads with SigV4.
+- **`postilla`:** one process per command, single-threaded. It vendors libopus, libopusenc and libFLAC, makes HTTPS client calls to OpenCode, Speechify, R2 and the server, and signs its R2 uploads and downloads with SigV4.
 
 ## Deployment
 
@@ -535,7 +532,7 @@ Everything comes from env, read and checked once at startup. A missing required 
 
 ## Tests
 
-Integration tests through the public entry points only (see `.agents/rules/testing.md`): HTTP for the server, and for the CLI its commands run on a temp story folder against a real server. Each suite gets a free port and a temp SQLite file. Fuzz tests with fixed seeds cover the `STRY` parse and the HTTP head, since they are hostile input.
+Integration tests through the public entry points only (see `.agents/rules/testing.md`): HTTP for the server, and for the CLI its commands run on a temp story folder against a real server. Each suite gets a free port and a temp SQLite file. Malformed `since`, `lang` and `STRY` bodies are integration cases like any other.
 
 OpenCode, Speechify and R2 are system boundaries. Tests point their base URLs at local fake servers that return recorded responses, so no test spends credits or needs network access. The Italian moderation test set is the exception: it calls Jev for real and runs only on demand.
 

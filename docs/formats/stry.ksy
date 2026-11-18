@@ -7,8 +7,7 @@ doc: |
   `22 + 40 × lang_count` bytes. The server also rejects with 400, beyond what this file
   checks: a body of any other length, a `lang` that isn't non-empty ASCII followed only by
   zero bytes, a repeated `lang`, no `it` (the original), and a `lang` not in `language`.
-  A removed story, or a published translation the body doesn't carry (without `force=1`),
-  gets a 409. See specification.md, `POST /stories`.
+  A removed story, or a published translation the body doesn't carry, gets a 409. See specification.md, `POST /stories`.
 doc-ref: ../specification.md
 seq:
   - id: magic
@@ -37,4 +36,4 @@ types:
         doc: The translation's language, a BCP 47 tag zero-padded to 8 bytes
       - id: sha256
         size: 32
-        doc: sha256 of the translation's .tilla.gz
+        doc: sha256 of the translation's .tilla, before gzip

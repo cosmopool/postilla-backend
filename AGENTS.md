@@ -2,7 +2,7 @@
 
 > Philosophy based on "Codin' Dirty" by Carson Gross — important things should be big, unimportant things should be little. Minimize the total number of functions, structs, files, layers, and concepts in the system. Less code and fewer abstractions beat "purist" decomposition.
 
-The backend is Zig (0.17, the `minimum_zig_version` in `build.zig.zon`) with vendored C libraries (SQLite, libopus, libFLAC). The design lives in [docs/specification.md](docs/specification.md).
+The backend is Zig (0.17, the `minimum_zig_version` in `build.zig.zon`) with vendored C libraries (SQLite, libopus, libopusenc, libFLAC). The design lives in [docs/specification.md](docs/specification.md).
 
 ## Data and performance
 - Organize code around data and transformations.
@@ -48,7 +48,6 @@ Follow the Zig style guide, as the pipeline in `../src` does:
 
 ## Testing
 - Suites must be isolated: free port + temp SQLite file per run, no shared state.
-- Fuzz tests only for hostile input (request bodies, the HTTP head): fixed seeds, bounded runtime.
 - OpenCode, Speechify and R2 are faked with local servers that return recorded responses; tests never call them.
 
 ## Decisions are mine — interview, don't assume

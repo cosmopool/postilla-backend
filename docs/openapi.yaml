@@ -42,7 +42,7 @@ info:
     (`pt-BR: published, missing from body`). A 401 has an empty body. A 500 (SQLite
     error) has no body.
 
-    Any path not listed here gets a 404, and any other method on a listed path gets a 405.
+    Any path or method not listed here gets a 404.
     The backend sends no CORS headers.
 servers:
   - url: http://127.0.0.1:8080
@@ -64,7 +64,7 @@ paths:
         than `since`, ascending by cursor. Removed translations are returned like any other,
         `since=0` included. The app builds each `.tilla.gz` URL from a record's `id`, `lang`
         and `sha256` (`stories/<id>/<lang>/<sha256>.tilla.gz`), and the `.opus` URL from the
-        `.tilla`.
+        `.tilla`. `sha256` is the hash of the `.tilla` before gzip.
       security: []
       parameters:
         - name: since
@@ -116,7 +116,7 @@ paths:
             | `id` | `uuid` | Story id |
             | `lang` | `lang` | The translation's language |
             | `change` | `u8` | What happened last to that translation: 1 `published` (new or changed) or 2 `removed` |
-            | `sha256` | `sha256` | sha256 of the translation's `.tilla.gz`; all zero when `removed` |
+            | `sha256` | `sha256` | sha256 of the translation's `.tilla`, before gzip; all zero when `removed` |
             | `cursor` | `u32` | The translation's cursor |
 
             When nothing is new, the body is the 9-byte header with `count` 0.
@@ -140,19 +140,10 @@ paths:
         doesn't check that they exist. Every translation in the body is upserted in one
         transaction: a new translation, or one whose sha256 changed, gets `change` `published`
         and the next cursor; one whose sha256 is the same keeps its cursor. A story that
-        already has a published translation in a language the body doesn't carry gets a 409,
-        unless `force=1`, which leaves that translation's row and cursor as they are.
+        already has a published translation in a language the body doesn't carry gets a 409;
+        there is no override.
       security:
         - authorToken: []
-      parameters:
-        - name: force
-          in: query
-          required: false
-          description: "`0` or `1`; missing counts as 0. Any other value gets a 400."
-          schema:
-            type: integer
-            enum: [0, 1]
-            default: 0
       requestBody:
         required: true
         description: |
@@ -170,7 +161,7 @@ paths:
           | Field | Type | Value |
           |---|---|---|
           | `lang` | `lang` | The translation's language |
-          | `sha256` | `sha256` | sha256 of its `.tilla.gz` |
+          | `sha256` | `sha256` | sha256 of its `.tilla`, before gzip |
 
           The parse rejects with 400 when any of these fail:
 
@@ -187,12 +178,12 @@ paths:
           $ref: "#/components/responses/Done"
         "400":
           $ref: "#/components/responses/BadRequest"
-          description: "The body fails the parse, a `lang` isn't in `language` (`lang: unknown id 'fr'`), or `force` isn't `0` or `1`"
+          description: "The body fails the parse, or a `lang` isn't in `language` (`lang: unknown id 'fr'`)"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
           $ref: "#/components/responses/Conflict"
-          description: "The story was removed (`story removed`), or it has a published translation the body doesn't carry and `force` isn't 1 (`pt-BR: published, missing from body`)"
+          description: "The story was removed (`story removed`), or it has a published translation the body doesn't carry (`pt-BR: published, missing from body`)"
         "500":
           $ref: "#/components/responses/DatabaseError"
 
