@@ -1,0 +1,25 @@
+{
+  "slug": "server-read",
+  "branch": "work/server-read",
+  "jira": "",
+  "base": "f62dd56c983ff2e0aaf4f647adfa779ff52e43f3",
+  "stage": "open",
+  "step": "approved",
+  "round": null,
+  "commit": "f62dd56c983ff2e0aaf4f647adfa779ff52e43f3",
+  "budget": {
+    "added": 350,
+    "newFiles": 1,
+    "newSymbols": 2
+  },
+  "api": "settled",
+  "pending": null,
+  "history": [
+    {
+      "stage": "open",
+      "step": "approved",
+      "round": null,
+      "commit": "f62dd56c983ff2e0aaf4f647adfa779ff52e43f3"
+    }
+  ]
+}
