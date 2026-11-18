@@ -127,4 +127,4 @@ The writer makes rules 2, 5, 6 and 8 hold by construction: it refuses, before wr
 
 ## Audio
 
-The `.opus` is Ogg Opus, 16 kbps, mono, encoded once from the narration's PCM; sentence times are in milliseconds from the start of the decoded audio. A reader checks a downloaded `.opus` against `opus_size` and `opus_sha256`.
+The `.opus` is Ogg Opus, 16 kbps, mono, encoded once from the narration's PCM, deterministically (the same PCM gives the same bytes); OpusHead's input rate is the PCM's rate; sentence times are in milliseconds from the start of the decoded audio. A reader checks a downloaded `.opus` against `opus_size` and `opus_sha256`.
