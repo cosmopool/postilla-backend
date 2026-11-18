@@ -3,10 +3,10 @@
   "branch": "work/cli-publish",
   "jira": "",
   "base": "aacef22ecee1528252e039b27342be19877fcdc7",
-  "stage": "minimize",
-  "step": "approved",
+  "stage": "finish",
+  "step": "done",
   "round": null,
-  "commit": "9c2c22e2efa17935039cc108742bc141e8e52b74",
+  "commit": "fd7a1741819159bb12e45b836e169d39eee0efb5",
   "budget": {
     "added": 450,
     "newFiles": 0,
@@ -74,6 +74,12 @@
       "step": "approved",
       "round": null,
       "commit": "9c2c22e2efa17935039cc108742bc141e8e52b74"
+    },
+    {
+      "stage": "finish",
+      "step": "done",
+      "round": null,
+      "commit": "fd7a1741819159bb12e45b836e169d39eee0efb5"
     }
   ],
   "verify": {
@@ -85,5 +91,6 @@
       "src/cli.zig: Empty or scheme-less POSTILLA_R2_ENDPOINT crashes publish instead of failing with a message",
       "src/cli.zig: Publish fails with 'dict: NotDir' when the dict cache directory is a symlink"
     ]
-  }
+  },
+  "clean_branch": "feat/cli-publish"
 }
