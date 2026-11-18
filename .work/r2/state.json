@@ -3,10 +3,10 @@
   "branch": "work/r2",
   "jira": "",
   "base": "93c1c2af1bd23806a4845df2964ba010d703e328",
-  "stage": "open",
-  "step": "approved",
+  "stage": "build",
+  "step": "tests",
   "round": null,
-  "commit": "93c1c2af1bd23806a4845df2964ba010d703e328",
+  "commit": "f2035aa60afcf0c216d7662ca7db780c3261fa5a",
   "budget": {
     "added": 300,
     "newFiles": 2,
@@ -20,6 +20,12 @@
       "step": "approved",
       "round": null,
       "commit": "93c1c2af1bd23806a4845df2964ba010d703e328"
+    },
+    {
+      "stage": "build",
+      "step": "tests",
+      "round": null,
+      "commit": "f2035aa60afcf0c216d7662ca7db780c3261fa5a"
     }
   ]
 }
