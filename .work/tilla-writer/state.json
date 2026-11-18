@@ -1,0 +1,25 @@
+{
+  "slug": "tilla-writer",
+  "branch": "work/tilla-writer",
+  "jira": "",
+  "base": "f2367df566fc9e667c24616ce74e0f89021bb2ac",
+  "stage": "open",
+  "step": "approved",
+  "round": null,
+  "commit": "f2367df566fc9e667c24616ce74e0f89021bb2ac",
+  "budget": {
+    "added": 220,
+    "newFiles": 1,
+    "newSymbols": 3
+  },
+  "api": "settled",
+  "pending": null,
+  "history": [
+    {
+      "stage": "open",
+      "step": "approved",
+      "round": null,
+      "commit": "f2367df566fc9e667c24616ce74e0f89021bb2ac"
+    }
+  ]
+}
