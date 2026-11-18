@@ -1,0 +1,1 @@
+{"round":1,"newCritical":0,"seen":["src/audio.zig: Rates 65,537 to 95,999 Hz that are not multiples of 10 fail with error.FlacEncode instead of encoding","src/audio.zig: Rate check lets through rates libFLAC rejects, so they fail as FlacEncode after the Opus encode"]}

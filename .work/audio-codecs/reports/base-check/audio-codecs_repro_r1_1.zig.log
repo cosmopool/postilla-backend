@@ -1,0 +1,16 @@
+test
++- run test
+   +- compile test debug native 1 errors
+test/audio-codecs_repro_r1_1.zig:6:23: error: no module named 'audio' available within module 'root'
+const audio = @import("audio");
+                      ^~~~~~~
+referenced by:
+    test.AC-F2: a rate libFLAC refuses, 88,201 Hz, returns error.UnsupportedRate, not error.FlacEncode: test/audio-codecs_repro_r1_1.zig:14:20
+error: 1 compilation errors
+failed command: /home/agent/.local/zig/zig test -Odebug --dep server --dep harness --dep words --dep tilla --dep r2 --dep cli -Mroot=test/audio-codecs_repro_r1_1.zig -cflags -DSQLITE_THREADSAFE=2 -DSQLITE_DQS=0 -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_OMIT_DEPRECATED -DSQLITE_OMIT_SHARED_CACHE -DSQLITE_LIKE_DOESNT_MATCH_BLOBS -- zig-pkg/N-V-__8AALc_rgC04POe18O0LKFRm4ouQpLtL3riscEmWp-Q/sqlite3.c -Odebug -I zig-pkg/N-V-__8AALc_rgC04POe18O0LKFRm4ouQpLtL3riscEmWp-Q --dep c -Mserver=src/server.zig -Odebug --dep server -Mharness=test/harness.zig -Mwords=src/words.zig --dep c --dep server --dep words -Mtilla=src/tilla.zig --dep outbound.zig -Mr2=src/r2.zig -Odebug --dep server --dep tilla --dep r2 --dep outbound.zig -Mcli=src/cli.zig -Odebug -Mc=.zig-cache/o/f11d71b66746fbf3f42e1e6b04a6e8d8/c.zig -Moutbound.zig=src/outbound.zig -lc --cache-dir .zig-cache --global-cache-dir /home/agent/.cache/zig --build-root . --name test --zig-lib-dir /home/agent/.local/zig/lib/ --listen=-
+
+Build Summary: 1/4 steps succeeded (1 failed)
+test transitive failure
++- run test transitive failure
+   +- compile test debug native 1 errors
+
