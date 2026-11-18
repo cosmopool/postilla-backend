@@ -104,6 +104,16 @@ pub fn build(b: *std.Build) void {
             test_step.dependOn(&b.addRunArtifact(t).step);
         }
     }
+
+    // The Italian moderation test set calls the real Jev, so it runs only on demand.
+    const live = b.addRunArtifact(b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("test/live/moderation.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "cli", .module = cli_mod }},
+    }) }));
+    live.has_side_effects = true;
+    b.step("test-moderation", "Send the Italian moderation test set to the real Jev (spends credits)").dependOn(&live.step);
 }
 
 fn module(
