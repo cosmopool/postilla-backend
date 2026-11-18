@@ -145,8 +145,10 @@ fn connection(io: Io, stream: Io.net.Stream, config: *const Config) Io.Cancelabl
 }
 
 fn route(request: *std.http.Server.Request, d: db.Db) !void {
-    var params = std.mem.splitAny(u8, request.head.target, "?&");
-    const path = params.first();
+    const target = request.head.target;
+    const q = std.mem.indexOfScalar(u8, target, '?') orelse target.len;
+    const path = target[0..q];
+    var params = std.mem.splitScalar(u8, target[@min(q + 1, target.len)..], '&');
     if (request.head.method == .GET) {
         if (std.mem.eql(u8, path, "/stories")) return feed(request, d, &params);
         if (std.mem.eql(u8, path, "/genres")) return list(request, d, "GNRS", "SELECT id, it, pt_br, en FROM genre ORDER BY id");
@@ -185,7 +187,7 @@ fn list(request: *std.http.Server.Request, d: db.Db, comptime magic: []const u8,
 
 /// `GET /stories`: parses `since` and `lang`, then runs one query on the `cursor` index.
 /// The first row carries the row count, so the body is sized once.
-fn feed(request: *std.http.Server.Request, d: db.Db, params: *std.mem.SplitIterator(u8, .any)) !void {
+fn feed(request: *std.http.Server.Request, d: db.Db, params: *std.mem.SplitIterator(u8, .scalar)) !void {
     var since: ?[]const u8 = null;
     var lang: ?[]const u8 = null;
     while (params.next()) |p| {
