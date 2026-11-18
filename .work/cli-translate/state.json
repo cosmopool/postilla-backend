@@ -3,10 +3,10 @@
   "branch": "work/cli-translate",
   "jira": "",
   "base": "d0857375c2d1fd111aa77fe910891d5043fed9aa",
-  "stage": "verify",
-  "step": "round-1",
-  "round": 1,
-  "commit": "c895f55fb4caee70fba7344d46d3ac33b5598775",
+  "stage": "bench",
+  "step": "done",
+  "round": null,
+  "commit": "6265535e22eb7384a3527ddec335bae746a55a9b",
   "budget": {
     "added": 300,
     "newFiles": 2,
@@ -62,6 +62,12 @@
       "step": "round-1",
       "round": 1,
       "commit": "c895f55fb4caee70fba7344d46d3ac33b5598775"
+    },
+    {
+      "stage": "bench",
+      "step": "done",
+      "round": null,
+      "commit": "6265535e22eb7384a3527ddec335bae746a55a9b"
     }
   ],
   "verify": {
