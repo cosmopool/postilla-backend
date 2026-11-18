@@ -3,10 +3,10 @@
   "branch": "work/audio-codecs",
   "jira": "",
   "base": "ed77e3cf559f507ef5398535638935ab4396c441",
-  "stage": "minimize",
-  "step": "approved",
+  "stage": "finish",
+  "step": "done",
   "round": null,
-  "commit": "21947b1a55bcfae35633f1c984a404402cef2f96",
+  "commit": "7addfbb3001d9ab792d01a8e991fd3bcb95971af",
   "budget": {
     "added": 300,
     "newFiles": 2,
@@ -62,6 +62,12 @@
       "step": "approved",
       "round": null,
       "commit": "21947b1a55bcfae35633f1c984a404402cef2f96"
+    },
+    {
+      "stage": "finish",
+      "step": "done",
+      "round": null,
+      "commit": "7addfbb3001d9ab792d01a8e991fd3bcb95971af"
     }
   ],
   "verify": {
@@ -71,5 +77,6 @@
       "src/audio.zig: Rates 65,537 to 95,999 Hz that are not multiples of 10 fail with error.FlacEncode instead of encoding",
       "src/audio.zig: Rate check lets through rates libFLAC rejects, so they fail as FlacEncode after the Opus encode"
     ]
-  }
+  },
+  "clean_branch": "feat/audio-codecs"
 }
