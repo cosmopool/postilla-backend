@@ -4,76 +4,16 @@
   "jira": "",
   "base": "3e75d29277f3da5013a05db5b49aec18d7d71e88",
   "stage": "minimize",
-  "step": "auto",
+  "step": "approved",
   "round": null,
-  "commit": "b14563a53dfcbd913268418f849dffa030ea561d",
+  "commit": "09f79d2989eaadd918479f03a506c090e0715916",
   "budget": {
     "added": 220,
     "newFiles": 2,
     "newSymbols": 5
   },
   "api": "settled",
-  "pending": {
-    "kind": "deletion-queue",
-    "queue": [
-      {
-        "file": "src/words.zig",
-        "line": 127,
-        "construct": "if (word.len > buf.len) return false;",
-        "class": "defensive",
-        "reason": "Validation early-return in pure logic (inList), not at an I/O boundary. No AC or test sends a word longer than 32 bytes next to an apostrophe, so nothing executes this path. It exists only in case such a word turns up.",
-        "riskIfWrong": "Deleting it alone makes normalize write past the 32-byte stack buffer when a word of 33 or more bytes sits next to an apostrophe (for example \"'\" followed by a long word). That is a safety-checked panic, which breaks the totality AC-F1 promises. If it is removed, the guard has to be replaced, for example by comparing word.len against the longest list entry (10, \"ndrangheta\"), not just deleted."
-      },
-      {
-        "file": "src/words.zig",
-        "line": 46,
-        "construct": "if (end > std.math.maxInt(u16)) break;",
-        "class": "defensive",
-        "reason": "Guard on pure logic for sentences over 65 535 bytes. No AC covers it (it comes only from the 'Spans fit in u16' assumption in requirement.md) and no test reaches it.",
-        "riskIfWrong": "Without it, the @intCast on line 47 panics in safe builds on a sentence over 64 KiB, so the CLI or tilla-writer crashes instead of truncating. If the owner confirms the CLI refuses such sentences, this becomes dead code. Until then, deleting it trades a silent truncation for a crash."
-      },
-      {
-        "file": "src/words.zig",
-        "line": 79,
-        "construct": "if (c.len > 0) prev = c;",
-        "class": "defensive",
-        "reason": "In lookupKeys, this condition skips combining accents when tracking the previous character. No AC-8 or AC-10 input has a combining accent before an inner apostrophe (all inputs are precomposed), so the false branch never runs. It exists 'in case'. The Dart copy in build.zig (r[i] < 0x300 || r[i] > 0x36f) mirrors it.",
-        "riskIfWrong": "For a word like \"\u013a'aria\" (letter + combining accent + apostrophe), lookupKeys would not find the inner apostrophe and would give no tail keys. The word rule treats the accent as part of the letter, so split and lookupKeys would disagree. If it is deleted, the Dart copy must go in the same change, or AC-10 parity breaks for such inputs."
-      },
-      {
-        "file": "src/words.zig",
-        "line": 8,
-        "construct": "pub const Span = struct { start: u16 = 0, end: u16 = 0 };",
-        "class": "defensive",
-        "reason": "The default field values are not in the manifest, which declares `{ start: u16, end: u16 }`. Nothing uses them: split always sets both fields (line 47), and the tests build Span only with both fields or as `undefined` buffers. They exist only in case someone writes `.{}`.",
-        "riskIfWrong": "Low. A future caller writing `words.Span{}` fails to compile and must name both fields. That is arguably better, because a zero-length span at 0 is not a real word."
-      },
-      {
-        "file": "src/words.zig",
-        "line": 98,
-        "construct": "const len = std.unicode.utf8ByteSequenceLength(text[0]) catch return .{ text[0..1], 1 };",
-        "class": "defensive",
-        "reason": "Pattern hit on pure logic: caller text is explicitly not an I/O boundary (requirement.md, Touched boundaries). However, AC-F1 requires exactly this behaviour (an invalid start byte is a one-byte separator, copied unchanged), and test/words.zig:155-170 asserts it. Keep it; do not propose deletion.",
-        "riskIfWrong": "Zig makes the error union be handled, so the only alternative is `catch unreachable`. That panics on any stray continuation byte or 0xF8+ byte, which breaks AC-F1."
-      },
-      {
-        "file": "src/words.zig",
-        "line": 99,
-        "construct": "if (len > text.len) return .{ text[0..1], 1 };",
-        "class": "defensive",
-        "reason": "A truncated-sequence guard on pure logic, not on I/O. AC-F1 requires it: the test cases \"e\\xcc\", \"po\\xe2\\x80\" and \"\\xc3\" in test/words.zig:163-170 are truncated sequences at the end of the text. Keep it.",
-        "riskIfWrong": "text[0..len] would slice out of bounds and panic on a truncated multibyte sequence at the end of a sentence, which breaks AC-F1."
-      },
-      {
-        "file": "src/words.zig",
-        "line": 100,
-        "construct": "const cp = std.unicode.utf8Decode(text[0..len]) catch return .{ text[0..1], 1 };",
-        "class": "defensive",
-        "reason": "Pattern hit on pure logic, not an I/O boundary. AC-F1 requires it (bad continuation and overlong sequences such as \"\\xc0\\xaf\" are separators and copied unchanged), and test/words.zig:157 and 160 assert it. Keep it.",
-        "riskIfWrong": "Replacing it with `catch unreachable` panics on overlong or bad-continuation input, which breaks AC-F1."
-      }
-    ]
-  },
+  "pending": null,
   "history": [
     {
       "stage": "open",
@@ -116,6 +56,12 @@
       "step": "auto",
       "round": null,
       "commit": "b14563a53dfcbd913268418f849dffa030ea561d"
+    },
+    {
+      "stage": "minimize",
+      "step": "approved",
+      "round": null,
+      "commit": "09f79d2989eaadd918479f03a506c090e0715916"
     }
   ],
   "verify": {
