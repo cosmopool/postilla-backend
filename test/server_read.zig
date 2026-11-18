@@ -65,19 +65,43 @@ inline fn rep(comptime ch: u8, comptime n: usize) *const [n]u8 {
     return comptime &@as([n]u8, @splat(ch));
 }
 
-/// Four translations of three stories, inserted out of cursor order and with ids whose
-/// order differs from cursor order. Story 0x11 was removed: its row keeps its sha256.
-const stories =
-    "INSERT INTO story (id, lang, sha256, change, cursor) VALUES " ++
-    "(X'" ++ rep('1', 32) ++ "', 'it', X'" ++ rep('d', 64) ++ "', 2, 4), " ++
-    "(X'" ++ rep('2', 32) ++ "', 'pt-BR', X'" ++ rep('c', 64) ++ "', 1, 3), " ++
-    "(X'" ++ rep('3', 32) ++ "', 'it', X'" ++ rep('a', 64) ++ "', 1, 1), " ++
-    "(X'" ++ rep('2', 32) ++ "', 'it', X'" ++ rep('b', 64) ++ "', 1, 2);";
+/// A STRY body for the story whose id is `id` repeated: each translation is a `lang`
+/// and a byte its sha256 repeats.
+inline fn stry(comptime id: u8, comptime translations: []const struct { []const u8, u8 }) []const u8 {
+    return comptime blk: {
+        var out: []const u8 = "STRY\x01" ++ rep(id, 16) ++ [_]u8{translations.len};
+        for (translations) |t| {
+            var one: [40]u8 = @splat(0);
+            @memcpy(one[0..t[0].len], t[0]);
+            @memset(one[8..], t[1]);
+            out = out ++ one;
+        }
+        break :blk out;
+    };
+}
+
+const auth = "\r\nauthorization: Bearer " ++ harness.token;
+
+fn write(h: *const Harness, head: []const u8, body: []const u8) !void {
+    var buf: [4096]u8 = undefined;
+    const r = try h.send(head, body, &buf);
+    try expectEqual(200, r.status);
+}
+
+/// Four translations of three stories, published through the endpoints so that story
+/// ids sort opposite to cursors. Story 0x11 was removed after its publish.
+fn publishStories(h: *const Harness) !void {
+    try write(h, "POST /stories HTTP/1.1" ++ auth, stry(0x33, &.{.{ "it", 0xaa }}));
+    try write(h, "POST /stories HTTP/1.1" ++ auth, stry(0x22, &.{.{ "it", 0xbb }}));
+    try write(h, "POST /stories HTTP/1.1" ++ auth, stry(0x22, &.{ .{ "it", 0xbb }, .{ "pt-BR", 0xcc } }));
+    try write(h, "POST /stories HTTP/1.1" ++ auth, stry(0x11, &.{.{ "it", 0xdd }}));
+    try write(h, "DELETE /stories/11111111-1111-1111-1111-111111111111 HTTP/1.1" ++ auth, "");
+}
 
 const c1 = record(0x33, "it", 1, 0xaa, 1);
 const c2 = record(0x22, "it", 1, 0xbb, 2);
 const c3 = record(0x22, "pt-BR", 1, 0xcc, 3);
-const c4_removed = record(0x11, "it", 2, 0x00, 4);
+const c4_removed = record(0x11, "it", 2, 0x00, 5);
 
 fn expectBody(h: *const Harness, head: []const u8, want: []const u8) !void {
     var buf: [4096]u8 = undefined;
@@ -195,7 +219,7 @@ test "AC-5, AC-6, AC-7: the feed returns the listed languages' rows above since,
 
     try expectBody(&h, "GET /stories?lang=it HTTP/1.1", feed(&.{}));
 
-    try h.sql(stories);
+    try publishStories(&h);
 
     const above_1 = feed(&.{ c2, c3, c4_removed });
     try expectEqual(9 + 61 * 3, above_1.len);
@@ -211,9 +235,10 @@ test "AC-5, AC-6, AC-7: the feed returns the listed languages' rows above since,
     try expectBody(&h, "GET /stories?since=0&lang=it,pt-BR HTTP/1.1", all);
     try expectBody(&h, "GET /stories?since=0000000000&x=1&lang=it,pt-BR HTTP/1.1", all);
 
+    try expectBody(&h, "GET /stories?since=4&lang=it,pt-BR HTTP/1.1", feed(&.{c4_removed}));
     const empty = "FEED\x01\x00\x00\x00\x00";
-    try expectBody(&h, "GET /stories?since=4&lang=it,pt-BR HTTP/1.1", empty);
-    try expectBody(&h, "GET /stories?since=0000000004&lang=it,pt-BR HTTP/1.1", empty);
+    try expectBody(&h, "GET /stories?since=5&lang=it,pt-BR HTTP/1.1", empty);
+    try expectBody(&h, "GET /stories?since=0000000005&lang=it,pt-BR HTTP/1.1", empty);
     try expectBody(&h, "GET /stories?since=4294967295&lang=it,pt-BR HTTP/1.1", empty);
 }
 
