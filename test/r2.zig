@@ -576,7 +576,7 @@ test "AC-F3: a dict/latest line that doesn't parse fails r2.dict at once, with n
     }
 }
 
-test "AC-F4: a dict dir that can't be written fails r2.dict with the filesystem error and leaves no temp file" {
+test "AC-F4: a dict dir that can't be written fails r2.dict with the filesystem error and leaves no temp file, nor does a build that breaks halfway through being written" {
     var f: FakeR2 = undefined;
     try f.start(&.{});
     defer f.stop();
@@ -602,4 +602,16 @@ test "AC-F4: a dict dir that can't be written fails r2.dict with the filesystem 
     const path = try c.dict(io, a, dir);
     try expectEqualStrings(db_v1, try Io.Dir.cwd().readFileAlloc(io, path, a, .limited(1 << 20)));
     try expectEqualStrings(try std.fmt.allocPrint(a, "{s}.db", .{hex}), try listing(a, tmp));
+
+    // A new build whose size and sha256 match dict/latest but whose gzip trailer is cut
+    // off: the content is written out before the gunzip fails. No temp file and no new
+    // .db are left, and the current build is kept since nothing was switched to.
+    const whole = try gzip(a, db_v2);
+    const cut = whole[0 .. whole.len - 8];
+    const cut_hex = sha256(cut);
+    try f.object(try std.fmt.allocPrint(a, "dict/{s}.db.gz", .{cut_hex}), cut);
+    try f.object("dict/latest", try std.fmt.allocPrint(a, "{s} {d}\n", .{ cut_hex, cut.len }));
+    if (c.dict(io, a, dir)) |_| return error.TestExpectedError else |_| {}
+    try expectEqualStrings(try std.fmt.allocPrint(a, "{s}.db", .{hex}), try listing(a, tmp));
+    try expectEqualStrings(db_v1, try Io.Dir.cwd().readFileAlloc(io, path, a, .limited(1 << 20)));
 }
