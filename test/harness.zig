@@ -57,6 +57,14 @@ pub const Harness = struct {
         const n = try in.interface.readSliceShort(buf);
         return Response.parse(buf[0..n]);
     }
+
+    /// Runs `text` on the harness's database with its own connection, the way an
+    /// operator edits `postilla.db` by hand.
+    pub fn sql(h: *const Harness, text: [:0]const u8) !void {
+        var d = try server.db.open(h.db_path);
+        defer d.close();
+        try d.exec(text);
+    }
 };
 
 pub const token = "test-token";
@@ -66,7 +74,7 @@ pub const Response = struct {
     head: []const u8,
     body: []const u8,
 
-    fn parse(raw: []const u8) !Response {
+    pub fn parse(raw: []const u8) !Response {
         const split = std.mem.indexOf(u8, raw, "\r\n\r\n") orelse return error.NoHead;
         const head = raw[0..split];
         if (head.len < 12 or !std.mem.startsWith(u8, head, "HTTP/1.1 ")) return error.BadStatusLine;
