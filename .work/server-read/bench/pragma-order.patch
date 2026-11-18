@@ -1,0 +1,13 @@
+--- /home/arrow/Development/postilla-backend/src/db.zig	2026-11-18 02:24:20.579837990 +0000
++++ src/db.zig	2026-11-18 02:56:33.496349620 +0000
+@@ -59,9 +59,9 @@
+         return err;
+     }
+     d.exec(
++        \\PRAGMA busy_timeout = 5000;
+         \\PRAGMA journal_mode = WAL;
+         \\PRAGMA synchronous = NORMAL;
+-        \\PRAGMA busy_timeout = 5000;
+         \\PRAGMA foreign_keys = ON;
+     ) catch |err| {
+         d.close();

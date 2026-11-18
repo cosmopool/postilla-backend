@@ -1,0 +1,10 @@
+--- /home/arrow/Development/postilla-backend/build.zig	2026-11-18 02:27:24.946899897 +0000
++++ build.zig	2026-11-18 02:46:42.450568100 +0000
+@@ -56,6 +56,7 @@
+             .imports = &.{
+                 .{ .name = "server", .module = server_mod },
+                 .{ .name = "harness", .module = harness },
++                .{ .name = "c", .module = c_mod },
+             },
+         }) });
+         if (coverage) {

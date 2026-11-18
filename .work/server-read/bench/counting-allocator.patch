@@ -1,0 +1,40 @@
+--- /home/arrow/Development/postilla-backend/src/server.zig	2026-11-18 02:38:37.454876151 +0000
++++ src/server.zig	2026-11-18 02:58:29.898795479 +0000
+@@ -18,7 +18,36 @@
+     idle_timeout_ms: i64 = 30_000,
+ };
+ 
+-const gpa = std.heap.smp_allocator;
++pub var allocs: std.atomic.Value(usize) = .init(0);
++pub var resizes: std.atomic.Value(usize) = .init(0);
++pub var bytes: std.atomic.Value(usize) = .init(0);
++const counting_vtable: std.mem.Allocator.VTable = .{
++    .alloc = struct {
++        fn f(_: *anyopaque, len: usize, a: std.mem.Alignment, ra: usize) ?[*]u8 {
++            _ = allocs.fetchAdd(1, .monotonic);
++            _ = bytes.fetchAdd(len, .monotonic);
++            return std.heap.smp_allocator.vtable.alloc(undefined, len, a, ra);
++        }
++    }.f,
++    .resize = struct {
++        fn f(_: *anyopaque, m: []u8, a: std.mem.Alignment, n: usize, ra: usize) bool {
++            _ = resizes.fetchAdd(1, .monotonic);
++            return std.heap.smp_allocator.vtable.resize(undefined, m, a, n, ra);
++        }
++    }.f,
++    .remap = struct {
++        fn f(_: *anyopaque, m: []u8, a: std.mem.Alignment, n: usize, ra: usize) ?[*]u8 {
++            _ = resizes.fetchAdd(1, .monotonic);
++            return std.heap.smp_allocator.vtable.remap(undefined, m, a, n, ra);
++        }
++    }.f,
++    .free = struct {
++        fn f(_: *anyopaque, m: []u8, a: std.mem.Alignment, ra: usize) void {
++            std.heap.smp_allocator.vtable.free(undefined, m, a, ra);
++        }
++    }.f,
++};
++const gpa: std.mem.Allocator = .{ .ptr = undefined, .vtable = &counting_vtable };
+ 
+ /// specification.md, Database. The temp table's CHECK refuses a schema newer than 1.
+ const schema =

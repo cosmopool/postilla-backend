@@ -1,0 +1,185 @@
+test
++- run test stderr
+rows=     0 since=0 current (window count)      sql-only median=10.1us
+rows=     0 since=0 feed stmt (cumulative over 51 runs): returned=0 vm_steps=1326 fullscan_steps=0 sorts=51 autoindex=0
+  plan[current (window count)]: CO-ROUTINE (subquery-2)
+  plan[current (window count)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+  plan[current (window count)]: SCAN (subquery-2)
+  plan[current (window count)]: USE TEMP B-TREE FOR ORDER BY
+rows=     0 since=0 variant (no window)         sql-only median=5.2us
+rows=     0 since=0 feed stmt (cumulative over 51 runs): returned=0 vm_steps=561 fullscan_steps=0 sorts=0 autoindex=0
+  plan[variant (no window)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+rows=     0 since=0 variant (count only)        sql-only median=5.3us
+rows=     0 since=0 feed stmt (cumulative over 51 runs): returned=1 vm_steps=714 fullscan_steps=0 sorts=0 autoindex=0
+  plan[variant (count only)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+rows=     0 since=0 variant (window by cursor)  sql-only median=9.3us
+rows=     0 since=0 feed stmt (cumulative over 51 runs): returned=0 vm_steps=1224 fullscan_steps=0 sorts=0 autoindex=0
+  plan[variant (window by cursor)]: CO-ROUTINE (subquery-2)
+  plan[variant (window by cursor)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+  plan[variant (window by cursor)]: SCAN (subquery-2)
+rows=     0 since=0 current (window count)      sql-only median=9.9us
+rows=     0 since=0 feed stmt (cumulative over 51 runs): returned=0 vm_steps=1326 fullscan_steps=0 sorts=51 autoindex=0
+  plan[current (window count)]: CO-ROUTINE (subquery-2)
+  plan[current (window count)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+  plan[current (window count)]: SCAN (subquery-2)
+  plan[current (window count)]: USE TEMP B-TREE FOR ORDER BY
+rows=     0 since=0 variant (no window)         sql-only median=5.1us
+rows=     0 since=0 feed stmt (cumulative over 51 runs): returned=0 vm_steps=561 fullscan_steps=0 sorts=0 autoindex=0
+  plan[variant (no window)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+rows=     0 since=0 variant (count only)        sql-only median=5.4us
+rows=     0 since=0 feed stmt (cumulative over 51 runs): returned=1 vm_steps=714 fullscan_steps=0 sorts=0 autoindex=0
+  plan[variant (count only)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+rows=     0 since=0 variant (window by cursor)  sql-only median=9.6us
+rows=     0 since=0 feed stmt (cumulative over 51 runs): returned=0 vm_steps=1224 fullscan_steps=0 sorts=0 autoindex=0
+  plan[variant (window by cursor)]: CO-ROUTINE (subquery-2)
+  plan[variant (window by cursor)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+  plan[variant (window by cursor)]: SCAN (subquery-2)
+rows=     0 full sync since=0 keep-alive       iters=1000 body=       9B  median=   101.7us p95=   144.3us max=   595.4us mean=   107.5us
+rows=     0 incremental (<=10 new) keep-alive  iters=1000 body=       9B  median=    89.0us p95=   124.4us max=   658.1us mean=    96.0us
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+rows=     0 incremental (<=10 new) new conn    dropped connections (no response): 16 of 1000
+rows=     0 incremental (<=10 new) new conn    iters= 984 body=       9B  median=   850.2us p95=  1566.8us max=  5067.2us mean=   935.2us
+rows=     0 GET /languages keep-alive (ref)    iters=1000 body=      82B  median=    46.1us p95=    72.5us max=   245.1us mean=    51.4us
+rows=  1000 since=0 current (window count)      sql-only median=2662.0us
+rows=  1000 since=0 feed stmt (cumulative over 51 runs): returned=1000 vm_steps=2705244 fullscan_steps=0 sorts=51 autoindex=0
+  plan[current (window count)]: CO-ROUTINE (subquery-2)
+  plan[current (window count)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+  plan[current (window count)]: SCAN (subquery-2)
+  plan[current (window count)]: USE TEMP B-TREE FOR ORDER BY
+rows=  1000 since=0 variant (no window)         sql-only median=949.9us
+rows=  1000 since=0 feed stmt (cumulative over 51 runs): returned=1000 vm_steps=817275 fullscan_steps=0 sorts=0 autoindex=0
+  plan[variant (no window)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+rows=  1000 since=0 variant (count only)        sql-only median=743.7us
+rows=  1000 since=0 feed stmt (cumulative over 51 runs): returned=1 vm_steps=562428 fullscan_steps=0 sorts=0 autoindex=0
+  plan[variant (count only)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+rows=  1000 since=0 variant (window by cursor)  sql-only median=2561.1us
+rows=  1000 since=0 feed stmt (cumulative over 51 runs): returned=1000 vm_steps=2246142 fullscan_steps=0 sorts=0 autoindex=0
+  plan[variant (window by cursor)]: CO-ROUTINE (subquery-2)
+  plan[variant (window by cursor)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+  plan[variant (window by cursor)]: SCAN (subquery-2)
+rows=  1000 since=990 current (window count)      sql-only median=52.6us
+rows=  1000 since=990 feed stmt (cumulative over 51 runs): returned=10 vm_steps=29274 fullscan_steps=0 sorts=51 autoindex=0
+rows=  1000 since=990 variant (no window)         sql-only median=13.5us
+rows=  1000 since=990 feed stmt (cumulative over 51 runs): returned=10 vm_steps=9435 fullscan_steps=0 sorts=0 autoindex=0
+rows=  1000 since=990 variant (count only)        sql-only median=11.2us
+rows=  1000 since=990 feed stmt (cumulative over 51 runs): returned=1 vm_steps=7038 fullscan_steps=0 sorts=0 autoindex=0
+rows=  1000 since=990 variant (window by cursor)  sql-only median=47.8us
+rows=  1000 since=990 feed stmt (cumulative over 51 runs): returned=10 vm_steps=24582 fullscan_steps=0 sorts=0 autoindex=0
+rows=  1000 full sync since=0 keep-alive       iters=1000 body=   61009B  median=  2995.7us p95=  4102.7us max=  7377.4us mean=  3148.4us
+rows=  1000 incremental (<=10 new) keep-alive  iters=1000 body=     619B  median=   125.6us p95=   207.7us max=   364.3us mean=   133.5us
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+rows=  1000 incremental (<=10 new) new conn    dropped connections (no response): 10 of 1000
+rows=  1000 incremental (<=10 new) new conn    iters= 990 body=     619B  median=   826.4us p95=  1641.9us max=  4152.2us mean=   948.6us
+rows=  1000 GET /languages keep-alive (ref)    iters=1000 body=      82B  median=    56.5us p95=    83.5us max=   607.6us mean=    58.0us
+rows= 10000 since=0 current (window count)      sql-only median=29169.2us
+rows= 10000 since=0 feed stmt (cumulative over 51 runs): returned=10000 vm_steps=27032244 fullscan_steps=0 sorts=51 autoindex=0
+  plan[current (window count)]: CO-ROUTINE (subquery-2)
+  plan[current (window count)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+  plan[current (window count)]: SCAN (subquery-2)
+  plan[current (window count)]: USE TEMP B-TREE FOR ORDER BY
+rows= 10000 since=0 variant (no window)         sql-only median=11724.5us
+rows= 10000 since=0 feed stmt (cumulative over 51 runs): returned=10000 vm_steps=8161275 fullscan_steps=0 sorts=0 autoindex=0
+  plan[variant (no window)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+rows= 10000 since=0 variant (count only)        sql-only median=9532.9us
+rows= 10000 since=0 feed stmt (cumulative over 51 runs): returned=1 vm_steps=5611428 fullscan_steps=0 sorts=0 autoindex=0
+  plan[variant (count only)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+rows= 10000 since=0 variant (window by cursor)  sql-only median=27821.5us
+rows= 10000 since=0 feed stmt (cumulative over 51 runs): returned=10000 vm_steps=22442142 fullscan_steps=0 sorts=0 autoindex=0
+  plan[variant (window by cursor)]: CO-ROUTINE (subquery-2)
+  plan[variant (window by cursor)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+  plan[variant (window by cursor)]: SCAN (subquery-2)
+rows= 10000 since=9990 current (window count)      sql-only median=30.2us
+rows= 10000 since=9990 feed stmt (cumulative over 51 runs): returned=10 vm_steps=29274 fullscan_steps=0 sorts=51 autoindex=0
+rows= 10000 since=9990 variant (no window)         sql-only median=22.0us
+rows= 10000 since=9990 feed stmt (cumulative over 51 runs): returned=10 vm_steps=9435 fullscan_steps=0 sorts=0 autoindex=0
+rows= 10000 since=9990 variant (count only)        sql-only median=15.8us
+rows= 10000 since=9990 feed stmt (cumulative over 51 runs): returned=1 vm_steps=7038 fullscan_steps=0 sorts=0 autoindex=0
+rows= 10000 since=9990 variant (window by cursor)  sql-only median=27.0us
+rows= 10000 since=9990 feed stmt (cumulative over 51 runs): returned=10 vm_steps=24582 fullscan_steps=0 sorts=0 autoindex=0
+rows= 10000 full sync since=0 keep-alive       iters=1000 body=  610009B  median= 30797.3us p95= 37184.1us max= 63594.9us mean= 31822.1us
+rows= 10000 incremental (<=10 new) keep-alive  iters=1000 body=     619B  median=   106.0us p95=   150.1us max=   295.6us mean=   115.5us
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+[db] (warn): database is locked
+rows= 10000 incremental (<=10 new) new conn    dropped connections (no response): 18 of 1000
+rows= 10000 incremental (<=10 new) new conn    iters= 982 body=     619B  median=   716.4us p95=  1460.2us max=  4055.8us mean=   836.3us
+rows= 10000 GET /languages keep-alive (ref)    iters=1000 body=      82B  median=    59.7us p95=    86.4us max=   201.3us mean=    62.1us
+rows=100000 since=0 current (window count)      sql-only median=359987.3us
+rows=100000 since=0 feed stmt (cumulative over 11 runs): returned=100000 vm_steps=58300484 fullscan_steps=0 sorts=11 autoindex=0
+  plan[current (window count)]: CO-ROUTINE (subquery-2)
+  plan[current (window count)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+  plan[current (window count)]: SCAN (subquery-2)
+  plan[current (window count)]: USE TEMP B-TREE FOR ORDER BY
+rows=100000 since=0 variant (no window)         sql-only median=130459.7us
+rows=100000 since=0 feed stmt (cumulative over 11 runs): returned=100000 vm_steps=17600275 fullscan_steps=0 sorts=0 autoindex=0
+  plan[variant (no window)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+rows=100000 since=0 variant (count only)        sql-only median=108646.9us
+rows=100000 since=0 feed stmt (cumulative over 11 runs): returned=1 vm_steps=12100308 fullscan_steps=0 sorts=0 autoindex=0
+  plan[variant (count only)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+rows=100000 since=0 variant (window by cursor)  sql-only median=306846.4us
+rows=100000 since=0 feed stmt (cumulative over 11 runs): returned=100000 vm_steps=48400462 fullscan_steps=0 sorts=0 autoindex=0
+  plan[variant (window by cursor)]: CO-ROUTINE (subquery-2)
+  plan[variant (window by cursor)]: SEARCH story USING INDEX sqlite_autoindex_story_1 (cursor>?)
+  plan[variant (window by cursor)]: SCAN (subquery-2)
+rows=100000 since=99990 current (window count)      sql-only median=31.5us
+rows=100000 since=99990 feed stmt (cumulative over 11 runs): returned=10 vm_steps=6314 fullscan_steps=0 sorts=11 autoindex=0
+rows=100000 since=99990 variant (no window)         sql-only median=13.7us
+rows=100000 since=99990 feed stmt (cumulative over 11 runs): returned=10 vm_steps=2035 fullscan_steps=0 sorts=0 autoindex=0
+rows=100000 since=99990 variant (count only)        sql-only median=11.8us
+rows=100000 since=99990 feed stmt (cumulative over 11 runs): returned=1 vm_steps=1518 fullscan_steps=0 sorts=0 autoindex=0
+rows=100000 since=99990 variant (window by cursor)  sql-only median=28.2us
+rows=100000 since=99990 feed stmt (cumulative over 11 runs): returned=10 vm_steps=5302 fullscan_steps=0 sorts=0 autoindex=0
+rows=100000 full sync since=0 keep-alive       iters= 100 body= 6100009B  median=344475.6us p95=375901.8us max=421465.3us mean=347950.6us
+rows=100000 incremental (<=10 new) keep-alive  iters=1000 body=     619B  median=   117.9us p95=   315.6us max=  1903.3us mean=   156.7us
+[db] (warn): database is locked
+[db] (warn): database is locked
+rows=100000 incremental (<=10 new) new conn    dropped connections (no response): 2 of 1000
+rows=100000 incremental (<=10 new) new conn    iters= 998 body=     619B  median=   710.9us p95=  1370.5us max=  3001.6us mean=   860.9us
+rows=100000 GET /languages keep-alive (ref)    iters=1000 body=      82B  median=    56.5us p95=    78.8us max=   411.7us mean=    59.1us
+failed command: ./.zig-cache/o/6a8f7f7b0b3ddb5e428915a526fe99d6/test --cache-dir=./.zig-cache --seed=0xefa88d8c --listen=-
+
+Build Summary: 4/4 steps succeeded; 1/1 tests passed
+test success
++- run test 1 pass (1 total) 1m MaxRSS:19M
+   +- compile test safe native success 31s MaxRSS:487M
+      +- translate-c cached 40ms MaxRSS:40M
+
