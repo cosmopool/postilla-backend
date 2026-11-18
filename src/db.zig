@@ -59,9 +59,9 @@ pub fn open(path: [:0]const u8) error{Sqlite}!Db {
         return err;
     }
     d.exec(
+        \\PRAGMA busy_timeout = 5000;
         \\PRAGMA journal_mode = WAL;
         \\PRAGMA synchronous = NORMAL;
-        \\PRAGMA busy_timeout = 5000;
         \\PRAGMA foreign_keys = ON;
     ) catch |err| {
         d.close();
