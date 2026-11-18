@@ -4,52 +4,16 @@
   "jira": "",
   "base": "d0857375c2d1fd111aa77fe910891d5043fed9aa",
   "stage": "minimize",
-  "step": "auto",
+  "step": "approved",
   "round": null,
-  "commit": "80d9a9886983244292ff1cda0227c3089eba8b20",
+  "commit": "e7a5e7ae16508e58fba53e875eaa26a5db68f66d",
   "budget": {
     "added": 300,
     "newFiles": 2,
     "newSymbols": 1
   },
   "api": "settled",
-  "pending": {
-    "kind": "deletion-queue",
-    "queue": [
-      {
-        "file": "src/cli.zig",
-        "line": 39,
-        "construct": "if (!force and ...) / else if (redo.len == 0 and ...)  // rejects a repeated --force or --redo as a usage error",
-        "class": "defensive",
-        "reason": "This only checks argument shape. No I/O boundary is involved. AC-10 asks for exit 2 on no folder, an unknown flag and --redo without a value. A repeated flag appears only in requirement.md's Assumed list, not in any AC. Dropping the two guards means a repeated --force does nothing extra and a later --redo wins.",
-        "riskIfWrong": "`--force --force` and `--redo a --redo b` would run the command instead of exiting 2. The AC-10 test case `{path, \"--force\", \"--force\"}` (test/cli_translate.zig:764) would have to go, and the assumption would need the owner to drop it."
-      },
-      {
-        "file": "src/cli.zig",
-        "line": 199,
-        "construct": "prompt_names.get(lang) orelse return fail(w, \"{s}: no prompt name\", .{lang})",
-        "class": "defensive",
-        "reason": "This guards data that is already parsed: the server's language list checked against a compile-time table with one entry. Config rules.io_boundaries does not list the project's own server lists. No AC covers it and no test sends a translate-1 language other than pt-BR. It is there only in case the server adds a language. The only basis is the Assumed entry 'A translate 1 language without a prompt name stops the command'.",
-        "riskIfWrong": "If the server starts listing a second translate-1 language (es, say) before prompt_names gains it, `.?` would panic instead of printing one line and exiting 1. If kept, it needs an AC naming that exit."
-      },
-      {
-        "file": "src/cli.zig",
-        "line": 195,
-        "construct": "(lists[3].get(redo) orelse [2]u8{ 0, 0 })[1] != 1) return fail(w, \"--redo {s}: not a language with translate 1\", ...)",
-        "class": "defensive",
-        "reason": "This validates a CLI argument against the parsed lists. It does not guard an I/O boundary. AC-7 requires it, though ('--redo it or --redo xx exits 1 and sends no OpenCode request'), and test/cli_translate.zig:661 checks it. This is a classification only. It is not a deletion proposal.",
-        "riskIfWrong": "Deleting it breaks AC-7: `--redo xx` would run as a no-op translate and `--redo it` would go on to moderation."
-      },
-      {
-        "file": "src/cli.zig",
-        "line": 246,
-        "construct": "reason = \"empty sentence\"; for (got) |s| if (s.len == 0) continue :tries;",
-        "class": "defensive",
-        "reason": "This is a content check on an already-parsed DeepSeek reply, with no AC behind it. It was added by verify round 1 (commit c895f55) with reproductions test/cli-translate_repro_r1_1.zig and _r1_2.zig. Their names say an empty sentence would leave a story.json that breaks the 'no empty sentence' rule, so the next --redo would fail. Listed for completeness. A confirmed stage 2 bug justifies it.",
-        "riskIfWrong": "Deleting it brings back the round 1 bug: story.json gets a translation with an empty sentence, and every later command fails rule checking on its own output."
-      }
-    ]
-  },
+  "pending": null,
   "history": [
     {
       "stage": "open",
@@ -110,6 +74,12 @@
       "step": "auto",
       "round": null,
       "commit": "80d9a9886983244292ff1cda0227c3089eba8b20"
+    },
+    {
+      "stage": "minimize",
+      "step": "approved",
+      "round": null,
+      "commit": "e7a5e7ae16508e58fba53e875eaa26a5db68f66d"
     }
   ],
   "verify": {
