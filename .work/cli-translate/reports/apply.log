@@ -1,0 +1,15 @@
+== apply
+== generate
+== dependencies
+== analyze
+== test
+test
++- run test stderr
+dict: InvalidFormat
+failed command: ./.zig-cache/o/04d4555da5f1a75e9c715733ddb68115/test --cache-dir=./.zig-cache --seed=0xdc878cd8 --listen=-
+
+test
++- run test stderr
+POSTILLA_R2_ENDPOINT: not a URL
+failed command: ./.zig-cache/o/f4771deebe476de33c461513ce815d2e/test --cache-dir=./.zig-cache --seed=0xdc878cd8 --listen=-
+

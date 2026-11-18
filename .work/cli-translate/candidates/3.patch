@@ -1,0 +1,294 @@
+diff --git a/build.zig b/build.zig
+index cfe5c69..84dc694 100644
+--- a/build.zig
++++ b/build.zig
+@@ -60,6 +60,12 @@ pub fn build(b: *std.Build) void {
+ 
+     b.step("run", "Run postilla-server (config from env)").dependOn(&b.addRunArtifact(server_exe).step);
+ 
++    // The Italian moderation test set calls the real Jev, so it runs only on demand.
++    const live = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("test/live/moderation.zig"), .target = target, .optimize = optimize, .imports = &.{
++        .{ .name = "cli", .module = cli_mod },
++    } }) });
++    b.step("test-moderation", "Run the Italian moderation test set against the real Jev").dependOn(&b.addRunArtifact(live).step);
++
+     // Every test/*.zig except the harness is a test root. Tests start the real server
+     // through the `server` module and talk HTTP to it.
+     const harness = b.createModule(.{
+diff --git a/cli.env.example b/cli.env.example
+index 09ff25f..fa297fc 100644
+--- a/cli.env.example
++++ b/cli.env.example
+@@ -15,6 +15,9 @@ POSTILLA_AUTHOR_TOKEN=
+ 
+ # Required. OpenCode key, used for Jev (moderation) and DeepSeek (translation).
+ POSTILLA_OPENCODE_KEY=
++# Optional. OpenCode's base URL; the CLI appends /systemone/v1/systemone (Jev) and
++# /go/v1/chat/completions (DeepSeek). Unset means https://opencode.ai/inference.
++# POSTILLA_OPENCODE_URL=
+ # Required. Speechify key, used for simba-3.5 (narration).
+ POSTILLA_SPEECHIFY_KEY=
+ 
+diff --git a/docs/specification.md b/docs/specification.md
+index fb5e384..0e20d85 100644
+--- a/docs/specification.md
++++ b/docs/specification.md
+@@ -321,28 +321,41 @@ Every command checks `story.json` before it does anything, and stops on the firs
+ 
+ ### `postilla translate`
+ 
+-Translates the story into every language with `translate` 1 (today only `pt-BR`) that `translations` lacks. A rerun never overwrites a translation already there, so hand edits survive it. `--redo <lang>` first drops that language, which must be one with `translate` 1, then translates it again. When there is nothing to translate, the command does nothing, not even moderation.
++Translates the story into every language with `translate` 1 (today only `pt-BR`) that `translations` lacks. A rerun never overwrites a translation already there, so hand edits survive it. `--redo <lang>` first drops that language, which must be one with `translate` 1 (any other exits 1 before any OpenCode request), then translates it again; the new translation goes after the other languages. When there is nothing to translate, the command does nothing, not even moderation. An unknown flag, a repeated flag or `--redo` without a language is a usage error. A language with `translate` 1 but no prompt name (below) stops the command before moderation.
+ 
+-**Moderation** runs first, every time the command translates something. The Italian text (title, subtitle and sentences) goes to Jev (`jev-1.13`, OpenCode key) in `state`, with one `choice` question. Its options are `none`, `homophobic`, `racist`, `sexist`, `religious` and `other_hate`, each described in the question's `criteria`.
++`story.json` is written back once after moderation (the scores, even on a rejection), then once after each finished language, through `story.json.tmp` renamed over it, so a crash never leaves half a file. It is written by `std.json` with two-space indentation, in the field order it was read: a hand layout is reformatted on the first write.
++
++**Moderation** runs first, every time the command translates something. The Italian text goes to Jev (`jev-1.13`, OpenCode key) in `state`: the title, the subtitle, then each paragraph's sentences joined by one space, each on its own line. It has one `choice` question, `hate`, with `instructions` "Does this Italian text contain hate speech? Pick the kind, or none." Its options are `none`, `homophobic`, `racist`, `sexist`, `religious` and `other_hate`, each described in the question's `criteria`:
++
++| Option | Criterion |
++|---|---|
++| `none` | No hate speech: the text attacks no group for who they are |
++| `homophobic` | Attacks or demeans people for their sexual orientation or gender identity |
++| `racist` | Attacks or demeans people for their race, ethnicity or nationality |
++| `sexist` | Attacks or demeans people for their sex or gender |
++| `religious` | Attacks or demeans people for their religion |
++| `other_hate` | Attacks or demeans another protected group, such as disabled people |
++
++A Jev answer without the `hate` answer or any of the six probabilities stops the command naming `moderation`. A threshold that isn't a number from 0 to 1 stops the command naming `POSTILLA_MODERATION_THRESHOLD` before any request.
+ 
+ - Jev returns a probability for each option and no explanation.
+ - The text is rejected when `P(none)` is below the threshold: env `POSTILLA_MODERATION_THRESHOLD`, default `0.9`.
+ - The scores are written to `moderation` either way. On a rejection the command prints the six scores and the option with the highest probability, so a rejection says what was flagged, and exits non-zero without translating.
+-- `--force` is the override for a false positive: the command moderates again, writes the scores with `forced` true, and translates anyway.
++- `--force` is the override for a false positive: the command moderates again, writes the scores with `forced` true, and translates anyway. `forced` is true only when the text was rejected; a text that passes writes `forced` false, with or without `--force`.
+ - Jev's docs don't say whether it reads Italian. A fixed test set of Italian texts, both clean and hateful, runs through Jev before this step is trusted, and stays as a regression check. If Jev handles Italian poorly, moderation moves to the Portuguese translation.
+ 
+-Request: `POST https://opencode.ai/inference/systemone/v1/systemone`, with `Authorization: Bearer $POSTILLA_OPENCODE_KEY`.
++Request: `POST $POSTILLA_OPENCODE_URL/systemone/v1/systemone` (`https://opencode.ai/inference/systemone/v1/systemone` by default), with `Authorization: Bearer $POSTILLA_OPENCODE_KEY`. Every OpenCode request carries `user-agent: postilla/1.0`.
+ 
+ **Translation** uses DeepSeek (`deepseek-v4.1-flash`, OpenCode key), one pass per language. A language is written into `story.json` only once all of it is done, so after a failure a rerun redoes only the languages without a finished translation, and the error names the language that failed (`pt-BR: paragraph 4: wrong sentence count`).
+ 
+ Each pass translates paragraph by paragraph, in reading order. It sends the title and subtitle first, as one extra two-sentence paragraph with the same request shape and length check, so every translation gets its own `title` and `subtitle` with no other code path. Each request carries one paragraph's Italian sentences, and the reply must be a JSON array of strings of the same length. That keeps the 1:1 sentence alignment the app needs (TRA-08).
+ 
+-- A reply that isn't a JSON array of strings, or has the wrong number of sentences, counts as a failed try (see [Retries](#retries)).
+-- After the third failed try the command stops, and the error names the language and the paragraph.
++- A paragraph gets 3 tries. Each is one full call with its own network retries (see [Retries](#retries)); a reply that isn't a JSON array of strings, has the wrong number of sentences, is wrapped in code fences, or has no `choices[0].message.content`, starts the next try at once.
++- After the third failed try the command stops, and the error names the language and the paragraph (`pt-BR: paragraph 2: …`, counting from 1; the title paragraph is 0). A non-200 answer after the retries stops it too, naming the language and the status.
+ 
+ OpenCode Zen documents no JSON mode for this model, so the length check above is the only guarantee.
+ 
+-Request: `POST https://opencode.ai/inference/openai/v1/chat/completions` (OpenAI-compatible), with `Authorization: Bearer $POSTILLA_OPENCODE_KEY`. The request sets `model` to `deepseek-v4.1-flash` and `temperature` to `0.3`, and has two messages.
++Request: `POST $POSTILLA_OPENCODE_URL/go/v1/chat/completions` (OpenCode Go, OpenAI-compatible; `https://opencode.ai/inference/go/v1/chat/completions` by default), with `Authorization: Bearer $POSTILLA_OPENCODE_KEY`, `user-agent: postilla/1.0` and `x-opencode-session`, one random UUID per command run, the same on every DeepSeek request of the run. The request sets `model` to `deepseek-v4.1-flash` and `temperature` to `0.3`, and has two messages.
+ 
+ System message, with `{language}` replaced by the target language's English prompt name and `{level}` by `A1`, `A2`, `B1`, `B2`, `C1` or `C2`:
+ 
+@@ -513,6 +526,7 @@ Everything comes from env, read and checked once at startup. A missing required
+ | `POSTILLA_SERVER_URL` | required | Base URL of `postilla-server` (`https://api.example.com`) |
+ | `POSTILLA_AUTHOR_TOKEN` | required | The server's bearer token, for `POST /stories` |
+ | `POSTILLA_OPENCODE_KEY` | required | OpenCode key, for Jev and DeepSeek |
++| `POSTILLA_OPENCODE_URL` | `https://opencode.ai/inference` | OpenCode's base URL; a value without `://` stops `translate` naming the variable |
+ | `POSTILLA_SPEECHIFY_KEY` | required | Speechify key |
+ | `POSTILLA_R2_ACCOUNT_ID` | required | Cloudflare account id |
+ | `POSTILLA_R2_ENDPOINT` | `https://<account>.r2.cloudflarestorage.com` | R2's S3 API base URL, when it isn't the account's |
+@@ -542,7 +556,7 @@ Integration tests through the public entry points only (see `.agents/rules/testi
+ 
+ `zig build test` runs every `test/*.zig` (each its own test binary) except `test/harness.zig`, which starts the real server in-process on a free port with a temp SQLite file under `.zig-cache/tmp/`, and sends raw HTTP over TCP so a test can send any bytes. `-Dtest-file=test/<name>.zig` runs one file; `-Dcoverage` runs them under `kcov` into `coverage/kcov`. Malformed `since`, `lang` and `STRY` bodies are integration cases like any other.
+ 
+-OpenCode, Speechify and R2 are system boundaries. Tests point their base URLs at local fake servers that return recorded responses, so no test spends credits or needs network access. The Italian moderation test set is the exception: it calls Jev for real and runs only on demand.
++OpenCode, Speechify and R2 are system boundaries. Tests point their base URLs at local fake servers that return recorded responses, so no test spends credits or needs network access. The Italian moderation test set is the exception: it calls Jev for real and runs only on demand, with `zig build test-moderation` (`test/live/moderation.zig`, outside `test/*.zig`, so `zig build test` never runs it). It reads `POSTILLA_OPENCODE_KEY` from the environment or `cli.env` and calls `cli.moderate`: 4 clean Italian texts must pass the 0.9 threshold, and 5 hateful ones, one per option other than `none`, must be rejected.
+ 
+ ## Open
+ 
+diff --git a/src/cli.zig b/src/cli.zig
+index dc65ed8..d8569ba 100644
+--- a/src/cli.zig
++++ b/src/cli.zig
+@@ -31,11 +31,24 @@ pub fn run(io: Io, arena: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir,
+     var buf: [4096]u8 = undefined;
+     var out = Io.File.stderr().writerStreaming(io, &buf);
+     defer out.interface.flush() catch {};
+-    if (args.len != 3 or !std.mem.eql(u8, args[1], "publish")) {
++    const translate = args.len >= 3 and std.mem.eql(u8, args[1], "translate");
++    var bad = !translate and (args.len != 3 or !std.mem.eql(u8, args[1], "publish"));
++    var force = false;
++    var redo: []const u8 = "";
++    var i: usize = 3;
++    while (!bad and i < args.len) : (i += 1) {
++        if (std.mem.eql(u8, args[i], "--force") and !force) {
++            force = true;
++        } else if (std.mem.eql(u8, args[i], "--redo") and redo.len == 0 and i + 1 < args.len) {
++            i += 1;
++            redo = args[i];
++        } else bad = true;
++    }
++    if (bad) {
+         out.interface.writeAll(usage) catch {};
+         return 2;
+     }
+-    return publish(io, arena, env, cwd, args[2], &out.interface) catch |err| fail(&out.interface, "publish: {t}", .{err});
++    return command(io, arena, env, cwd, args[2], translate, force, redo, &out.interface) catch |err| fail(&out.interface, "{s}: {t}", .{ args[1], err });
+ }
+ 
+ /// Prints one line naming what failed; returns exit code 1.
+@@ -44,10 +57,12 @@ fn fail(w: *Io.Writer, comptime format: []const u8, args: anytype) u8 {
+     return 1;
+ }
+ 
+-/// `postilla publish <folder>` (specification.md, `postilla publish`): the configuration,
+-/// `story.json`'s rules, the server's lists, then every `.tilla` built, every file uploaded,
+-/// and last `POST /stories`. Nothing is uploaded until every check has passed.
+-fn publish(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, folder: []const u8, w: *Io.Writer) !u8 {
++/// `postilla translate` or `postilla publish` (specification.md, The CLI): the configuration,
++/// `story.json`'s rules and the server's lists, which both commands check, then the command.
++/// `translate`: moderation, then each missing language, `story.json` written after each.
++/// `publish`: every `.tilla` built, every file uploaded, and last `POST /stories`. Nothing is
++/// uploaded until every check has passed.
++fn command(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, folder: []const u8, translate: bool, force: bool, redo: []const u8, w: *Io.Writer) !u8 {
+     if (cwd.readFileAlloc(io, "cli.env", a, .limited(1 << 20))) |text| {
+         var lines = std.mem.splitScalar(u8, text, '\n');
+         var n: usize = 0;
+@@ -72,11 +87,17 @@ fn publish(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, fol
+         .access_key_id = env.get("POSTILLA_R2_ACCESS_KEY_ID").?,
+         .secret_access_key = env.get("POSTILLA_R2_SECRET_ACCESS_KEY").?,
+     };
++    const opencode_env = env.get("POSTILLA_OPENCODE_URL") orelse "";
++    const opencode_url = if (opencode_env.len > 0) opencode_env else "https://opencode.ai/inference";
++    if (translate and std.mem.find(u8, opencode_url, "://") == null) return fail(w, "POSTILLA_OPENCODE_URL: not a URL", .{});
++    const threshold_env = env.get("POSTILLA_MODERATION_THRESHOLD") orelse "";
++    const threshold = std.fmt.parseFloat(f64, if (threshold_env.len > 0) threshold_env else "0.9") catch -1;
++    if (translate and !(threshold >= 0 and threshold <= 1)) return fail(w, "POSTILLA_MODERATION_THRESHOLD: not a number from 0 to 1", .{});
+ 
+     var dir = cwd.openDir(io, folder, .{}) catch |err| return fail(w, "{s}: {t}", .{ folder, err });
+     defer dir.close(io);
+     const json = dir.readFileAlloc(io, "story.json", a, .limited(1 << 24)) catch |err| return fail(w, "{s}/story.json: {t}", .{ folder, err });
+-    const story = std.json.parseFromSliceLeaky(struct {
++    var story = std.json.parseFromSliceLeaky(struct {
+         id: []const u8,
+         level: u8,
+         genre: []const u8,
+@@ -95,7 +116,7 @@ fn publish(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, fol
+         }),
+     }, a, json, .{}) catch |err| return fail(w, "story.json: {t}", .{err});
+     const id = try wire.StoryId.parse(story.id);
+-    const translations = story.translations.map;
++    const translations = &story.translations.map;
+ 
+     var ascii = true;
+     for (story.license) |ch| ascii = ascii and ch < 0x80;
+@@ -134,6 +155,70 @@ fn publish(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, fol
+             try l.put(a, list_id, if (magic[0] == 'L') .{ try r.int(u8), try r.int(u8) } else .{ 0, 0 });
+         }
+     }
++    if (translate) {
++        if (redo.len > 0 and (lists[3].get(redo) orelse [2]u8{ 0, 0 })[1] != 1) return fail(w, "--redo {s}: not a language with translate 1", .{redo});
++        _ = translations.orderedRemove(redo);
++        var todo: std.ArrayList([2][]const u8) = .empty;
++        for (lists[3].keys(), lists[3].values()) |lang, flags| if (flags[1] == 1 and !translations.contains(lang))
++            try todo.append(a, .{ lang, prompt_names.get(lang) orelse return fail(w, "{s}: no prompt name", .{lang}) });
++        if (todo.items.len == 0) return 0;
++
++        // Jev reads the title, the subtitle, then each paragraph on its own line.
++        var state: Io.Writer.Allocating = .init(a);
++        try state.writer.print("{s}\n{s}", .{ it.title, it.subtitle });
++        for (it.paragraphs) |p| for (p, 0..) |s, j| try state.writer.print("{s}{s}", .{ if (j == 0) "\n" else " ", s });
++        const key = env.get("POSTILLA_OPENCODE_KEY").?;
++        const m = moderate(io, a, opencode_url, key, state.written()) catch |err| return fail(w, "moderation: {t}", .{err});
++        if (m[0] != .ok) return fail(w, "moderation: {d}", .{@backingInt(m[0])});
++        const p = m[1];
++        const rejected = p[0] < threshold;
++        story.moderation = .{ .none = p[0], .homophobic = p[1], .racist = p[2], .sexist = p[3], .religious = p[4], .other_hate = p[5], .forced = rejected and force };
++
++        var session: wire.StoryId = .{};
++        io.random(&session.bytes);
++        const headers = [_]std.http.Header{
++            .{ .name = "authorization", .value = try std.fmt.allocPrint(a, "Bearer {s}", .{key}) },
++            .{ .name = "user-agent", .value = "postilla/1.0" },
++            .{ .name = "content-type", .value = "application/json" },
++            .{ .name = "x-opencode-session", .value = &session.text() },
++        };
++        const chat_url = try std.fmt.allocPrint(a, "{s}/go/v1/chat/completions", .{opencode_url});
++        // story.json is written after moderation (l 0), then after each finished language.
++        for (0..todo.items.len + 1) |l| {
++            if (l > 0) {
++                const lang, const name = todo.items[l - 1];
++                const level = "A1A2B1B2C1C2"[2 * (story.level - 1) ..][0..2];
++                const system = try std.mem.replaceOwned(u8, a, try std.mem.replaceOwned(u8, a, system_prompt, "{language}", name), "{level}", level);
++                // Paragraph 0 is the title and the subtitle.
++                var done: std.ArrayList([]const []const u8) = .empty;
++                for (0..it.paragraphs.len + 1) |n| {
++                    const sentences: []const []const u8 = if (n == 0) &.{ it.title, it.subtitle } else it.paragraphs[n - 1];
++                    const previous: []const []const u8 = if (n < 2) &.{} else it.paragraphs[n - 2];
++                    const user = try std.json.Stringify.valueAlloc(a, .{ .title = it.title, .previous = previous, .sentences = sentences }, .{});
++                    const messages = .{ .{ .role = "system", .content = system }, .{ .role = "user", .content = user } };
++                    const body = try std.json.Stringify.valueAlloc(a, .{ .model = "deepseek-v4.1-flash", .temperature = 0.3, .messages = messages }, .{});
++                    // A reply that isn't a JSON array of the right length is a failed try.
++                    try done.append(a, for (0..3) |_| {
++                        const res = outbound.request(io, a, .{}, .POST, chat_url, &headers, body, "") catch |err| return fail(w, "{s}: paragraph {d}: {t}", .{ lang, n, err });
++                        if (res.status != .ok) return fail(w, "{s}: paragraph {d}: {d}", .{ lang, n, @backingInt(res.status) });
++                        const reply = std.json.parseFromSliceLeaky(struct { choices: []const struct { message: struct { content: []const u8 } } }, a, res.body, .{ .ignore_unknown_fields = true }) catch continue;
++                        if (reply.choices.len == 0) continue;
++                        const got = std.json.parseFromSliceLeaky([]const []const u8, a, reply.choices[0].message.content, .{}) catch continue;
++                        if (got.len == sentences.len) break got;
++                    } else return fail(w, "{s}: paragraph {d}: no JSON array of {d} strings in 3 tries", .{ lang, n, sentences.len }));
++                }
++                try translations.put(a, lang, .{ .title = done.items[0][0], .subtitle = done.items[0][1], .paragraphs = done.items[1..] });
++            }
++            const json_out = try std.json.Stringify.valueAlloc(a, story, .{ .whitespace = .indent_2, .emit_null_optional_fields = false });
++            dir.writeFile(io, .{ .sub_path = "story.json.tmp", .data = json_out }) catch |err| return fail(w, "{s}/story.json: {t}", .{ folder, err });
++            dir.rename("story.json.tmp", dir, "story.json", io) catch |err| return fail(w, "{s}/story.json: {t}", .{ folder, err });
++            const names = [_][]const u8{ "homophobic", "racist", "sexist", "religious", "other_hate" };
++            if (rejected and !force) return fail(w, "moderation: rejected, none {d} below {d}, homophobic {d}, racist {d}, sexist {d}, religious {d}, other_hate {d}: {s} highest", .{
++                p[0], threshold, p[1], p[2], p[3], p[4], p[5], names[std.mem.findMax(f64, p[1..])],
++            });
++        }
++        return 0;
++    }
+     if (!lists[0].contains(story.genre)) return fail(w, "genre: '{s}' not listed by the server", .{story.genre});
+     for (story.tags) |tag| if (!lists[1].contains(tag)) return fail(w, "tags: '{s}' not listed by the server", .{tag});
+     if (story.author.len > 0 and !lists[2].contains(story.author)) return fail(w, "author: '{s}' not listed by the server", .{story.author});
+@@ -213,3 +298,45 @@ fn publish(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, fol
+     try w.print("published {s}\n", .{&id.text()});
+     return 0;
+ }
++
++/// The English name DeepSeek's prompt gives each language with `translate` 1.
++const prompt_names: std.StaticStringMap([]const u8) = .initComptime(.{.{ "pt-BR", "Brazilian Portuguese" }});
++
++/// DeepSeek's system message, before `{language}` and `{level}` are replaced.
++const system_prompt =
++    \\You translate short Italian stories into {language} for {language} speakers learning Italian.
++    \\
++    \\- Write natural {language}, the way a native writer would, not word for word.
++    \\- Keep each sentence's meaning inside that sentence. Never move, merge or split content between sentences.
++    \\- Keep the names of people and places as they are in the Italian.
++    \\- The story is CEFR level {level}. Keep the {language} as simple as the Italian.
++    \\- The user message is a JSON object with "title" (the story's title), "previous" (the previous paragraph's Italian sentences, for context only; do not translate them) and "sentences" (the Italian sentences to translate).
++    \\- Reply with only a JSON array of strings: one {language} sentence per Italian sentence, in the same order, the same count. No commentary, no code fences.
++;
++
++/// One Jev call (specification.md, `postilla translate`): `text` against the `hate` question,
++/// at `base` (`POSTILLA_OPENCODE_URL`) with `key`. Returns Jev's status and, when it is 200,
++/// the probabilities of `none`, `homophobic`, `racist`, `sexist`, `religious` and
++/// `other_hate`, in that order.
++pub fn moderate(io: Io, a: Allocator, base: []const u8, key: []const u8, text: []const u8) !struct { std.http.Status, [6]f64 } {
++    const body = try std.json.Stringify.valueAlloc(a, .{ .model = "jev-1.13", .state = text, .questions = .{ .hate = .{
++        .type = "choice",
++        .instructions = "Does this Italian text contain hate speech? Pick the kind, or none.",
++        .criteria = .{
++            .none = "No hate speech: the text attacks no group for who they are",
++            .homophobic = "Attacks or demeans people for their sexual orientation or gender identity",
++            .racist = "Attacks or demeans people for their race, ethnicity or nationality",
++            .sexist = "Attacks or demeans people for their sex or gender",
++            .religious = "Attacks or demeans people for their religion",
++            .other_hate = "Attacks or demeans another protected group, such as disabled people",
++        },
++    } } }, .{});
++    const res = try outbound.request(io, a, .{}, .POST, try std.fmt.allocPrint(a, "{s}/systemone/v1/systemone", .{base}), &.{
++        .{ .name = "authorization", .value = try std.fmt.allocPrint(a, "Bearer {s}", .{key}) },
++        .{ .name = "user-agent", .value = "postilla/1.0" },
++        .{ .name = "content-type", .value = "application/json" },
++    }, body, "");
++    if (res.status != .ok) return .{ res.status, undefined };
++    const p = (try std.json.parseFromSliceLeaky(struct { answers: struct { hate: struct { probabilities: struct { none: f64, homophobic: f64, racist: f64, sexist: f64, religious: f64, other_hate: f64 } } } }, a, res.body, .{ .ignore_unknown_fields = true })).answers.hate.probabilities;
++    return .{ .ok, .{ p.none, p.homophobic, p.racist, p.sexist, p.religious, p.other_hate } };
++}
