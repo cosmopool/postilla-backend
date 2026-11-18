@@ -4,44 +4,16 @@
   "jira": "",
   "base": "f2367df566fc9e667c24616ce74e0f89021bb2ac",
   "stage": "minimize",
-  "step": "auto",
+  "step": "approved",
   "round": null,
-  "commit": "304995cea2606cdb128c7edcd7adcca7c390fd81",
+  "commit": "a7c9a9c1a44cc2ac6ee3ff803babf3f672a4d7d5",
   "budget": {
     "added": 220,
     "newFiles": 1,
     "newSymbols": 3
   },
   "api": "settled",
-  "pending": {
-    "kind": "deletion-queue",
-    "queue": [
-      {
-        "file": "src/tilla.zig",
-        "line": 40,
-        "construct": "if (in.tags.len > 65535 or in.paragraphs.len > 65535) return error.TooMany;  // the paragraphs.len half",
-        "class": "defensive",
-        "reason": "This is a validation early-return on pure in-memory input and does not guard an I/O boundary. The requirement's Decided list of refusals names sentence bytes, word counts, empty fields, narration count and rule-8 times. It does not name the paragraph count, and no AC requires it. No test reaches this half of the condition either: test/tilla.zig AC-8 and test/tilla-writer_repro_r1_1.zig only exercise 65 536 tags and 65 536 sentences in one paragraph. It was added by verify fix 29a1bc7 'in case'. A real story.json with more than 65 535 paragraphs of word-less sentences is test-only.",
-        "riskIfWrong": "An input with more than 65 535 paragraphs reaches w.int(u16, @intCast(in.paragraphs.len)) at line 127. That is a safety panic in Debug/ReleaseSafe and a silently truncated paragraph count (a corrupt .tilla that readers reject) in ReleaseFast."
-      },
-      {
-        "file": "src/tilla.zig",
-        "line": 40,
-        "construct": "if (in.tags.len > 65535 ...) return error.TooMany;  // the tags.len half",
-        "class": "defensive",
-        "reason": "This is a validation early-return on pure in-memory input, not an I/O boundary. The requirement's Decided refusals do not mention a tag-count limit, and no AC asks for one. Only the stage-2 repro test/tilla-writer_repro_r1_1.zig:18 covers it, and that repro needs 65 536 tags, which is a test-only state for a story.json.",
-        "riskIfWrong": "More than 65 535 tags panic at the @intCast on line 115 (w.int(u16, @intCast(in.tags.len))) in safe builds, or write a wrapped tag count that makes the file unreadable in ReleaseFast."
-      },
-      {
-        "file": "src/tilla.zig",
-        "line": 72,
-        "construct": "if (p.len > 65535) return error.TooMany;",
-        "class": "defensive",
-        "reason": "This is a validation early-return on pure in-memory input, not an I/O boundary. The Decided refusals limit words per sentence and per translation, not sentences per paragraph, and no AC covers it. Only the round-1 repro test/tilla-writer_repro_r1_1.zig:30 reaches it, and that repro uses 65 536 word-less sentences in one paragraph, a state no real story.json produces.",
-        "riskIfWrong": "A paragraph with more than 65 535 sentences panics at w.int(u16, @intCast(p.len)) on line 130 in safe builds, or writes a wrapped sentence count in ReleaseFast."
-      }
-    ]
-  },
+  "pending": null,
   "history": [
     {
       "stage": "open",
@@ -90,6 +62,12 @@
       "step": "auto",
       "round": null,
       "commit": "304995cea2606cdb128c7edcd7adcca7c390fd81"
+    },
+    {
+      "stage": "minimize",
+      "step": "approved",
+      "round": null,
+      "commit": "a7c9a9c1a44cc2ac6ee3ff803babf3f672a4d7d5"
     }
   ],
   "verify": {
