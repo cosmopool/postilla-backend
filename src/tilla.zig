@@ -37,6 +37,7 @@ pub const Input = struct {
 pub fn build(arena: std.mem.Allocator, in: Input, dict: [:0]const u8) !struct { tilla: []u8, gz: []u8, sha256: [32]u8 } {
     const n = in.narration;
     if (in.title.len == 0 or in.subtitle.len == 0 or in.paragraphs.len == 0) return error.Empty;
+    if (in.tags.len > 65535 or in.paragraphs.len > 65535) return error.TooMany;
     const spans = try arena.alloc(words.Span, 1 << 16);
     const key_buf = try arena.alloc(u8, 2 << 16);
 
@@ -68,6 +69,7 @@ pub fn build(arena: std.mem.Allocator, in: Input, dict: [:0]const u8) !struct { 
     var untimed = true;
     for (in.paragraphs) |p| {
         if (p.len == 0) return error.Empty;
+        if (p.len > 65535) return error.TooMany;
         size += 2;
         for (p) |text| {
             if (text.len == 0 or text.len > 65535) return error.BadSentence;

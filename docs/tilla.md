@@ -123,7 +123,7 @@ A reader rejects a file that breaks any of these, and keeps what it already had:
 7. The sum of all `word_count`s is `words`. When `lang` is `it`, the four `band_words` add up to `words`; when it isn't, they are all 0.
 8. Narration: `audio_ms`, `opus_size` and `opus_sha256` are all zero exactly when every `start_ms` and `end_ms` is 0. With narration, every sentence has `start_ms <= end_ms <= audio_ms`, and each sentence starts at or after the previous one's `start_ms`.
 
-The writer makes rules 2, 5, 6 and 8 hold by construction: it refuses, before writing a byte, an empty title, subtitle, paragraph list, paragraph or sentence, a sentence over 65 535 bytes (a span's `u16` can't reach past it), more than 65 535 words in a translation, a narration without one time pair per sentence, and times that break rule 8.
+The writer makes rules 2, 5, 6 and 8 hold by construction: it refuses, before writing a byte, an empty title, subtitle, paragraph list, paragraph or sentence, a sentence over 65 535 bytes (a span's `u16` can't reach past it), more than 65 535 words in a translation, more than 65 535 tags, paragraphs or sentences in a paragraph (their counts are `u16`s), a narration without one time pair per sentence, and times that break rule 8.
 
 ## Audio
 
