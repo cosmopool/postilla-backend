@@ -96,3 +96,20 @@ pub const Response = struct {
         return "";
     }
 };
+
+/// The lowercase hex sha256 of `data`.
+pub fn sha256Hex(data: []const u8) [64]u8 {
+    var digest: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(data, &digest, .{});
+    return std.fmt.bytesToHex(digest, .lower);
+}
+
+/// `data` gzipped.
+pub fn gzip(a: std.mem.Allocator, data: []const u8) ![]u8 {
+    var gz: std.Io.Writer.Allocating = try .initCapacity(a, 64);
+    var window: [std.compress.flate.max_window_len]u8 = undefined;
+    var z: std.compress.flate.Compress = try .init(&gz.writer, &window, .gzip, .default);
+    try z.writer.writeAll(data);
+    try z.finish();
+    return gz.written();
+}
