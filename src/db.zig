@@ -42,7 +42,9 @@ pub fn open(path: [:0]const u8) error{Sqlite}!Db {
     return d;
 }
 
-fn fail(d: Db) error{Sqlite} {
-    log.err("{s}", .{c.sqlite3_errmsg(d.handle)});
+/// Logs the connection's last error as a warning; the caller decides what the failure
+/// means (a 500, or a startup that stops).
+pub fn fail(d: Db) error{Sqlite} {
+    log.warn("{s}", .{c.sqlite3_errmsg(d.handle)});
     return error.Sqlite;
 }

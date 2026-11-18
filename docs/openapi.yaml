@@ -42,7 +42,9 @@ info:
     (`pt-BR: published, missing from body`). A 401 has an empty body. A 500 (SQLite
     error) has no body.
 
-    Any path or method not listed here gets a 404.
+    A malformed request head, or one over 8 KiB, gets a 400 `bad request head` and the
+    connection closes. Any path or method not listed here, HEAD included, gets a 404
+    `not found`.
     The backend sends no CORS headers.
 servers:
   - url: http://127.0.0.1:8080
@@ -126,7 +128,7 @@ paths:
                 $ref: "#/components/schemas/Binary"
         "400":
           $ref: "#/components/responses/BadRequest"
-          description: "`since` isn't a decimal `u32`; or `lang` is missing, empty or malformed, has a duplicate, or names an id not in `language`"
+          description: "`since` isn't 1 to 10 decimal digits of a `u32` (`since: not a u32`) or is repeated (`since: repeated`); or `lang` is missing (`lang: missing`), repeated (`lang: repeated`), has an empty item (`lang: empty id`), more than 4 ids (`lang: more than 4 ids`), a duplicate (`lang: duplicate id 'it'`), or an id not in `language` (`lang: unknown id 'fr'`)"
         "500":
           $ref: "#/components/responses/DatabaseError"
 
