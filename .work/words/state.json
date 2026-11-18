@@ -1,0 +1,25 @@
+{
+  "slug": "words",
+  "branch": "work/words",
+  "jira": "",
+  "base": "3e75d29277f3da5013a05db5b49aec18d7d71e88",
+  "stage": "open",
+  "step": "approved",
+  "round": null,
+  "commit": "3e75d29277f3da5013a05db5b49aec18d7d71e88",
+  "budget": {
+    "added": 220,
+    "newFiles": 2,
+    "newSymbols": 5
+  },
+  "api": "settled",
+  "pending": null,
+  "history": [
+    {
+      "stage": "open",
+      "step": "approved",
+      "round": null,
+      "commit": "3e75d29277f3da5013a05db5b49aec18d7d71e88"
+    }
+  ]
+}
