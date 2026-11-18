@@ -440,7 +440,7 @@ It uploads every translation's `.tilla.gz`, `.opus` and `.flac` to R2 under the 
 
 Each call to an outside service (OpenCode, Speechify, R2) and to the server goes through `outbound.request` (`src/outbound.zig`) and gets 4 tries in all (1 + 3 retries), waiting 5 s, 30 s, then 2 min between them. A network error, a timeout, a 429 or a 5xx counts as a failed try; a `Retry-After` in seconds on a 429 or a 503 replaces the scheduled wait, capped at 2 min. Any other status ends the call at once with that status.
 
-Each try sends its own copy of the body, so a try cut mid-send can't change what the next one sends. A try times out after 10 s without a connection, or 60 s after connecting without the whole answer. The HTTP client has no timeouts of its own, so the try runs as a task that is canceled when either time runs out.
+Every call sends `user-agent: postilla/1.0` (the HTTP client's own `zig/…` is replaced), which OpenCode Go asks of its clients, and `accept-encoding: identity`, since the client asks for gzip by default and OpenCode answers gzipped when asked. Each try sends its own copy of the body, so a try cut mid-send can't change what the next one sends. A try times out after 10 s without a connection, or 60 s after connecting without the whole answer. The HTTP client has no timeouts of its own, so the try runs as a task that is canceled when either time runs out.
 
 After the fourth failed try, the command stops with the step that failed and the error. Rerunning it starts that step over, keeping what `story.json` already holds.
 
@@ -555,7 +555,7 @@ Integration tests through the public entry points only (see `.agents/rules/testi
 
 `zig build test` runs every `test/*.zig` (each its own test binary) except `test/harness.zig`, which starts the real server in-process on a free port with a temp SQLite file under `.zig-cache/tmp/`, and sends raw HTTP over TCP so a test can send any bytes. `-Dtest-file=test/<name>.zig` runs one file; `-Dcoverage` runs them under `kcov` into `coverage/kcov`. Malformed `since`, `lang` and `STRY` bodies are integration cases like any other.
 
-OpenCode, Speechify and R2 are system boundaries. Tests point their base URLs at local fake servers that return recorded responses, so no test spends credits or needs network access. The Italian moderation test set is the exception: it calls Jev for real and runs only on demand.
+OpenCode, Speechify and R2 are system boundaries. Tests point their base URLs at local fake servers that return recorded responses, so no test spends credits or needs network access. The Italian moderation test set is the exception: it calls Jev for real and runs only on demand, with `zig build test-moderation` (`test/live/moderation.zig`, never part of `zig build test`). It reads `POSTILLA_OPENCODE_KEY` and `POSTILLA_OPENCODE_URL` from the environment or `cli.env`; every clean text must pass the default threshold, `0.9`, and every hateful one, one per option other than `none`, must be rejected.
 
 ## Open
 
