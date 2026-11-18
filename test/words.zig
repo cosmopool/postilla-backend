@@ -74,6 +74,9 @@ test "AC-3: edge apostrophes belong only to the words in the two closed lists" {
     try expectWords("un po' di pane", &.{ "un", "po'", "di", "pane" });
     try expectWords("Va\u{2019} via", &.{ "Va\u{2019}", "via" });
     try expectWords("di'", &.{"di'"});
+    try expectWords("un po'", &.{ "un", "po'" });
+    try expectWords("Va\u{2019}", &.{"Va\u{2019}"});
+    try expectWords("di' tu", &.{ "di'", "tu" });
     try expectWords("dammi 'sto libro", &.{ "dammi", "'sto", "libro" });
     try expectWords("\u{e8} 'Na storia", &.{ "\u{e8}", "'Na", "storia" });
     try expectWords("la 'casa' bella", &.{ "la", "casa", "bella" });
@@ -91,6 +94,7 @@ test "AC-5, AC-6: a combining accent belongs to the letter before it, and normal
     try expectWords("perche\u{301} no", &.{ "perche\u{301}", "no" });
     try expectWords("ca\u{300}sa", &.{"ca\u{300}sa"});
     try expectWords("a \u{301}b", &.{ "a", "b" });
+    try expectWords("e\u{301}\u{302} \u{301}", &.{"e\u{301}\u{302}"});
     try expectNormalized("perche\u{301}", "perche");
 }
 
@@ -122,6 +126,23 @@ test "AC-7: every letter in U+00C0–U+024F normalizes to lowercase ASCII letter
         try expectEqualStrings(once, words.normalize(once, &twice_buf));
     }
     try expectNormalized("\u{c0}\u{e0}\u{e1}\u{e2}\u{c7}\u{d1}", "aaaacn");
+
+    // The committed table: one `"<replacement>", // U+XXXX <letter>` line per code point.
+    const table = try std.Io.Dir.cwd().readFileAlloc(io, "src/words_table.zig", gpa, .limited(1 << 20));
+    defer gpa.free(table);
+    var entries: usize = 0;
+    var lines = std.mem.splitScalar(u8, table, '\n');
+    while (lines.next()) |line| {
+        const at = std.mem.indexOf(u8, line, "\", // U+") orelse continue;
+        const want = std.mem.trimStart(u8, line[0..at], " \"");
+        const code = try std.fmt.parseInt(u21, line[at + 8 ..][0..4], 16);
+        if (code == 0xD7 or code == 0xF7) continue;
+        entries += 1;
+        var letter: [4]u8 = undefined;
+        var got_buf: [8]u8 = undefined;
+        try expectEqualStrings(want, words.normalize(letter[0..try std.unicode.utf8Encode(code, &letter)], &got_buf));
+    }
+    try expectEqual(0x24F - 0xC0 + 1 - 2, entries);
 }
 
 test "AC-8: lookupKeys gives the keys to try in order, skipping one equal to the key before" {
@@ -137,6 +158,16 @@ test "AC-F1: bytes that aren't valid UTF-8 separate words and normalize unchange
     try expectWords("l'\xff", &.{"l"});
     try expectNormalized("AB\xffcd", "ab\xffcd");
     try expectNormalized("\xc3(\xc0\xaf\xe2\x80", "\xc3(\xc0\xaf\xe2\x80");
+
+    // Truncated sequences at the end, and buffers exactly as long as the text.
+    for ([_][]const u8{ "e\xcc", "po\xe2\x80", "\xc3", "a\xffb\xffc", "\xff\xfe\xf8\x80\xbf" }) |text| {
+        var spans: [16]words.Span = undefined;
+        for (words.split(text, spans[0..text.len])) |span| try expect(span.start < span.end and span.end <= text.len);
+        var out: [16]u8 = undefined;
+        try expectEqual(text.len, words.normalize(text, out[0..text.len]).len);
+    }
+    try expectWords("e\xcc", &.{"e"});
+    try expectWords("po\xe2\x80", &.{"po"});
 }
 
 test "AC-9: a package that imports only `words` builds and runs without fetching SQLite" {
@@ -246,6 +277,37 @@ test "AC-10, AC-6, AC-7, AC-8: the generated Dart normalize and lookupKeys give 
     }
     // One line per letter of the table: U+00C0–U+024F without × and ÷.
     try expectEqual(0x24F - 0xC0 + 1 - 2, letters);
+
+    // The Dart table has one `0x<code>: '<replacement>',` entry per letter of the
+    // committed table (`"<replacement>", // U+XXXX`), with the same replacement.
+    const table = try std.Io.Dir.cwd().readFileAlloc(io, "src/words_table.zig", gpa, .limited(1 << 20));
+    defer gpa.free(table);
+    var committed: [0x24F - 0xC0 + 1]?[]const u8 = @splat(null);
+    var table_lines = std.mem.splitScalar(u8, table, '\n');
+    while (table_lines.next()) |line| {
+        const at = std.mem.indexOf(u8, line, "\", // U+") orelse continue;
+        const want = std.mem.trimStart(u8, line[0..at], " \"");
+        if (want.len > 0) committed[try std.fmt.parseInt(u21, line[at + 8 ..][0..4], 16) - 0xC0] = want;
+    }
+    const dart = try std.Io.Dir.cwd().readFileAlloc(io, "zig-out/dart/words_norm.dart", gpa, .limited(1 << 20));
+    defer gpa.free(dart);
+    var seen: [0x24F - 0xC0 + 1]bool = @splat(false);
+    var dart_entries: usize = 0;
+    var dart_lines = std.mem.splitScalar(u8, dart, '\n');
+    while (dart_lines.next()) |line| {
+        const entry = std.mem.trim(u8, line, " ");
+        if (!std.mem.startsWith(u8, entry, "0x")) continue;
+        const colon = std.mem.indexOf(u8, entry, ": '") orelse return error.BadDartEntry;
+        const code = try std.fmt.parseInt(u21, entry[2..colon], 16);
+        try expect(code >= 0xC0 and code <= 0x24F);
+        try expect(!seen[code - 0xC0]);
+        seen[code - 0xC0] = true;
+        dart_entries += 1;
+        try expectEqualStrings(committed[code - 0xC0] orelse "(no entry)", std.mem.trimEnd(u8, entry[colon + 3 ..], "',"));
+    }
+    var committed_entries: usize = 0;
+    for (committed) |c| committed_entries += @intFromBool(c != null);
+    try expectEqual(committed_entries, dart_entries);
 }
 
 test "AC-F2: zig build dart fails with the filesystem error when its directory can't be created" {
