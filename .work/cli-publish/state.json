@@ -3,10 +3,10 @@
   "branch": "work/cli-publish",
   "jira": "",
   "base": "aacef22ecee1528252e039b27342be19877fcdc7",
-  "stage": "open",
-  "step": "approved",
+  "stage": "build",
+  "step": "tests",
   "round": null,
-  "commit": "aacef22ecee1528252e039b27342be19877fcdc7",
+  "commit": "d93041dc4f2e97e96bbefe832f54c708dd2b5cd8",
   "budget": {
     "added": 450,
     "newFiles": 0,
@@ -20,6 +20,12 @@
       "step": "approved",
       "round": null,
       "commit": "aacef22ecee1528252e039b27342be19877fcdc7"
+    },
+    {
+      "stage": "build",
+      "step": "tests",
+      "round": null,
+      "commit": "d93041dc4f2e97e96bbefe832f54c708dd2b5cd8"
     }
   ]
 }
