@@ -72,6 +72,7 @@ pub fn build(b: *std.Build) void {
     codecs.root_module.addIncludePath(flac_dir.path(b, "src/libFLAC/include"));
     audio.addImport("c", audio_c.createModule());
     audio.linkLibrary(codecs);
+    cli_mod.addImport("audio", audio);
     codecs.root_module.addCSourceFiles(.{
         .root = opus_dir,
         .files = &opus_files,
