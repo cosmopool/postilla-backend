@@ -18,6 +18,34 @@ pub const Db = struct {
     pub fn exec(d: Db, sql: [:0]const u8) error{Sqlite}!void {
         if (c.sqlite3_exec(d.handle, sql.ptr, null, null, null) != c.SQLITE_OK) return fail(d);
     }
+
+    /// Compiles one statement; the caller finalizes `handle`.
+    pub fn prepare(d: Db, sql: [:0]const u8) error{Sqlite}!Stmt {
+        var s: Stmt = .{ .db = d };
+        if (c.sqlite3_prepare_v2(d.handle, sql.ptr, -1, &s.handle, null) != c.SQLITE_OK) return fail(d);
+        return s;
+    }
+};
+
+/// A prepared statement of `db`.
+pub const Stmt = struct {
+    handle: ?*c.sqlite3_stmt = null,
+    db: Db,
+
+    /// True when a row is ready, false when the statement is done.
+    pub fn step(s: Stmt) error{Sqlite}!bool {
+        return switch (c.sqlite3_step(s.handle)) {
+            c.SQLITE_ROW => true,
+            c.SQLITE_DONE => false,
+            else => fail(s.db),
+        };
+    }
+
+    /// The bytes of a TEXT or BLOB column; SQLite gives an empty one no pointer.
+    pub fn bytes(s: Stmt, i: c_int) []const u8 {
+        const p: ?[*]const u8 = @ptrCast(c.sqlite3_column_blob(s.handle, i));
+        return (p orelse return "")[0..@intCast(c.sqlite3_column_bytes(s.handle, i))];
+    }
 };
 
 /// Opens (creating if needed) the database at `path` in WAL mode, with a busy timeout so
@@ -44,7 +72,7 @@ pub fn open(path: [:0]const u8) error{Sqlite}!Db {
 
 /// Logs the connection's last error as a warning; the caller decides what the failure
 /// means (a 500, or a startup that stops).
-pub fn fail(d: Db) error{Sqlite} {
+fn fail(d: Db) error{Sqlite} {
     log.warn("{s}", .{c.sqlite3_errmsg(d.handle)});
     return error.Sqlite;
 }
