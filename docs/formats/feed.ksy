@@ -42,6 +42,6 @@ types:
         doc: What happened last to that translation
       - id: sha256
         size: 32
-        doc: sha256 of the translation's .tilla.gz; all zero when removed
+        doc: sha256 of the translation's .tilla, before gzip; all zero when removed
       - id: cursor
         type: u4

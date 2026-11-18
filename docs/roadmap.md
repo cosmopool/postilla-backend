@@ -203,10 +203,10 @@ The input is the translation's paragraphs joined in reading order. The worker re
 The stream yields three outputs:
 
 - **Sentence times:** each sentence's `start_ms` and `end_ms` run from its first word's `start_time` to its last word's `end_time`. Words are matched to sentences by mapping the marks' character offsets onto the sentences.
-- **App audio:** the PCM is encoded once with vendored libopus to the Ogg Opus `.opus` that tilla.md describes (16 kbps, mono). Its length is the translation's `audio_ms`.
+- **App audio:** the PCM is encoded once with vendored libopusenc over libopus to the Ogg Opus `.opus` that tilla.md describes (16 kbps, mono). Its length is the translation's `audio_ms`.
 - **Master:** the same PCM is also compressed to FLAC with vendored libFLAC. It is a lossless copy kept for re-encoding later. The app never downloads it.
 
-When narration ends, the draft stores, per narrated language, the `.opus` and `.flac` as BLOBs with their sha256 and `audio_ms`, and each sentence's times, then stops at `listening`. So `listening` and publishing survive a restart.
+When narration ends, the worker writes, per narrated language, the `.opus` and `.flac` as files in the draft's folder (`<POSTILLA_DRAFTS_DIR>/<draft_id>/<lang>.opus` and `.flac`, the same names as in a CLI story folder), and the draft stores their sha256s, `audio_ms` and each sentence's times, then stops at `listening`. So `listening` and publishing survive a restart. The folder isn't in `postilla.db`, so Litestream doesn't back it up: a lost VPS loses unpublished narration, which is narrated again.
 
 #### Listening
 
@@ -234,7 +234,7 @@ A `.tilla` word is only a span, looked up by form; `dict.db` entry ids change be
 
 The worker writes one `.tilla` per translation ([tilla.md](tilla.md)): the story-level fields, the translation's title, subtitle and sentences, its word spans by the word rule in tilla.md, `words`, `band_words`, and, for a narrated translation, `audio_ms`, `opus_sha256`, `opus_size` and the sentence times. The gzip is deterministic, so an unchanged translation gives the same `.tilla.gz` and sha256.
 
-It uploads every translation's `.tilla.gz`, and every new `.opus` and `.flac`, to R2 under the keys in [Files in R2](specification.md#files-in-r2). Audio reused from the published version is already there. Last, after every file is in R2, it upserts every translation's `story` row in one `BEGIN IMMEDIATE` transaction: a row whose sha256 changed, or that is new, gets `change` `published` and the next cursor; a row whose sha256 is the same keeps its cursor. So a syncing app sees all of a story's changed translations or none. Only then is the draft `published`, and its audio BLOBs are set to NULL, since R2 has the files; the sha256s, `audio_ms` and sentence times stay, because an edit draft copies them to reuse the audio. Discard sets the BLOBs to NULL too.
+It uploads every translation's `.tilla.gz`, and every new `.opus` and `.flac`, to R2 under the keys in [Files in R2](specification.md#files-in-r2). Audio reused from the published version is already there. Last, after every file is in R2, it upserts every translation's `story` row in one `BEGIN IMMEDIATE` transaction: a row whose sha256 changed, or that is new, gets `change` `published` and the next cursor; a row whose sha256 is the same keeps its cursor. So a syncing app sees all of a story's changed translations or none. Only then is the draft `published`, and its folder is deleted, since R2 has the files; the sha256s, `audio_ms` and sentence times stay, because an edit draft copies them to reuse the audio. Discard deletes the folder too.
 
 #### `POST /drafts`
 
@@ -438,8 +438,7 @@ Any other state gets a 409.
 | 202 | Draft created |
 | 400 | Bad `since`, `lang` or `state`; a story id that isn't a UUID; a body that fails the parse (including a translation edit that changes a sentence count it may not); an unknown genre, tag or author |
 | 401 | Missing or wrong bearer token on an authoring endpoint |
-| 404 | Any other path, an unknown or non-numeric draft id, audio a draft doesn't hold, or a story id that isn't published on `/edit`, `/narrate` or `DELETE` |
-| 405 | Any other method on a known path |
+| 404 | Any other path or method, an unknown or non-numeric draft id, audio a draft doesn't hold, or a story id that isn't published on `/edit`, `/narrate` or `DELETE` |
 | 409 | An action on a draft that isn't in the state it needs; a new draft for a story that already has one in progress or that was removed; a revision mismatch; `DELETE` of a story with a draft in progress; `approve` with a genre no longer listed |
 | 500 | SQLite error |
 
@@ -450,30 +449,13 @@ The drafts live in their own tables; the exact columns are left to the implement
 - per draft: its id, story id, `kind`, `revision`, the header fields and tags, `state`, failed step, attempt count, error, moderation probabilities, and whether the held review comes from re-moderation;
 - per draft and language: the title and subtitle, and whether that language's translation is done;
 - per sentence, keyed by draft, paragraph, position and language: the text, and for a narrated language its `start_ms` and `end_ms`;
-- per draft and narrated language (`draft_audio`): the `.opus` and `.flac` BLOBs (NULL once published or discarded), their sha256s and `audio_ms`. About 0.5 MB of `.opus` for a 4-minute story at 16 kbps.
+- per draft and narrated language (`draft_audio`): the sha256s of the `.opus` and `.flac` and `audio_ms`. The files themselves are in the draft's folder until it is published or discarded: about 0.5 MB of `.opus` for a 4-minute story at 16 kbps, and several MB of `.flac`.
 
 Creating a draft checks for a draft in progress and for a removed story, and inserts the new one, in the same `BEGIN IMMEDIATE` transaction, so two requests at once can't both pass the check.
 
 ## Later
 
 Not assigned to a version yet.
-
-### Rate limit on public endpoints
-
-`GET /stories`, `GET /genres`, `GET /tags`, `GET /authors` and `GET /languages` are the only endpoints anyone can call; the rest need `POSTILLA_AUTHOR_TOKEN`. Nothing limits them today.
-
-Decided so far:
-
-- **Where:** in the backend, not in Caddy or Cloudflare. Behind Caddy every request comes from `127.0.0.1`, so the client IP is the last hop of `X-Forwarded-For`, trusted because the server binds to `127.0.0.1`.
-- **Policy:** one token bucket per client, shared by the five endpoints: a burst of 30, refilling 1 per second. An empty bucket gets a 429 with `Retry-After` set to the seconds until one token is back. Env `POSTILLA_RATE_BURST` (30) and `POSTILLA_RATE_PER_SEC` (1).
-- **Storage:** in memory only, so a restart refills every bucket. A fixed table of 2²⁰ (1,048,576) entries, allocated once at startup and guarded by one mutex. Each entry is 32 bytes (`ip` `[16]u8`, `tokens` `f32`, `last_ns` `u64`, padding), 33,554,432 bytes (32 MiB) in all.
-- **Lookup:** open addressing. Hash the key and look at up to 8 consecutive slots: a match is the client's bucket, otherwise take an empty slot, or replace the least recently seen of the 8. Constant work per request; an entry idle long enough to have refilled counts as empty.
-
-Still open:
-
-1. The IPv6 key. Proposed: IPv4 by full address (stored IPv4-mapped), IPv6 by its /64 (first 8 bytes), so a client rotating addresses inside its /64 doesn't get a fresh bucket each time. The alternatives are the full address (bypassable by anyone with a /64) or the /56 (stricter, more unrelated users share a bucket).
-
-When built: a 429 row in the spec's status codes, the env vars in Configuration and `.env.example`, 429 responses in openapi.yaml, and integration tests that drain a bucket and check `Retry-After`.
 
 ### Authoring app
 

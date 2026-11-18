@@ -13,7 +13,7 @@ What the Postilla learner app has to do with what the backend and postilla-conte
 ## 2. Syncing
 
 - **Records.** Each `FEED` record is one translation: `id`, `lang`, `change`, `sha256`, `cursor`. `change` 1 `published` means download `sha256`; `change` 2 `removed` means delete the local copy of that story. A new story and an updated one look the same; tell them apart by whether the id is already on the device. Ignore a `removed` record for an id the device doesn't have (they come in every sync, `since=0` included). Any other `change` value is an error.
-- **Atomic per story.** Group a sync's records by story `id`. Download that story's `.tilla.gz` files into a temporary directory and check each against its `sha256`. Only when every one of them is there and verified, move them into place in one step, replacing the old ones together. Until then the learner keeps the previous version. A story therefore never shows a new translation next to an old one.
+- **Atomic per story.** Group a sync's records by story `id`. Download that story's `.tilla.gz` files into a temporary directory, gunzip each, and check the `.tilla` against its `sha256` (the hash is of the file before gzip). Only when every one of them is there and verified, move them into place in one step, replacing the old ones together. Until then the learner keeps the previous version. A story therefore never shows a new translation next to an old one.
 - **Cursor.** Store a cursor only up to the highest cursor at or below which every record has been applied. A story that keeps failing holds the cursor back but doesn't block stories already applied, and after a crash the next sync returns the unapplied records again.
 - **No 404s.** The backend never deletes an R2 object, so a file the feed or a `.tilla` named is always there.
 - **Restores.** After a rare database restore the backend may reuse a few cursors; the app does nothing special, and catches up once new cursors pass its own.
@@ -59,7 +59,6 @@ What the Postilla learner app has to do with what the backend and postilla-conte
 
 - Every body and `.tilla` starts with a version. A reader that meets a version it doesn't know (`FEED`, a list body, `.tilla`) stops, keeps what it has, and asks the learner to update the app; it never guesses at the layout. The backend bumps a version only together with an app release that reads it.
 - 4xx responses carry a one-line English reason as `text/plain`; the learner app ignores it.
-- Rate limiting is on the backend's [roadmap](roadmap.md#rate-limit-on-public-endpoints): once it ships, a 429 carries `Retry-After`, and the app waits that long before retrying.
 
 ## Open on the app side
 
