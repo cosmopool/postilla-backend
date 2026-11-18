@@ -3,10 +3,10 @@
   "branch": "work/cli-translate",
   "jira": "",
   "base": "d0857375c2d1fd111aa77fe910891d5043fed9aa",
-  "stage": "minimize",
-  "step": "approved",
+  "stage": "finish",
+  "step": "done",
   "round": null,
-  "commit": "e7a5e7ae16508e58fba53e875eaa26a5db68f66d",
+  "commit": "15d7341bc3593b49ad28c6da8ae1038143f3cd73",
   "budget": {
     "added": 300,
     "newFiles": 2,
@@ -80,11 +80,18 @@
       "step": "approved",
       "round": null,
       "commit": "e7a5e7ae16508e58fba53e875eaa26a5db68f66d"
+    },
+    {
+      "stage": "finish",
+      "step": "done",
+      "round": null,
+      "commit": "15d7341bc3593b49ad28c6da8ae1038143f3cd73"
     }
   ],
   "verify": {
     "round": 1,
     "newCritical": 0,
     "seen": []
-  }
+  },
+  "clean_branch": "feat/cli-translate"
 }
