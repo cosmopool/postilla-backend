@@ -106,9 +106,9 @@ A draft has a `revision` (`u32`) that every change to it bumps, by a client or b
 
 #### Retries
 
-Each call to an outside service (OpenCode, Speechify, R2) is tried up to 3 times, waiting 5 s, 30 s, then 2 min between tries. A network error, a 429 or a 5xx counts as a failed try.
+Each call to an outside service (OpenCode, Speechify, R2) is tried and retried as the spec's [Retries](specification.md#retries) says.
 
-After the third failed try, the draft becomes `failed`. It stores the step that failed, the error, and the attempt count.
+After the last failed try, the draft becomes `failed`. It stores the step that failed, the error, and the attempt count.
 
 `POST /drafts/<id>/resume` reruns the failed step from scratch with a fresh try count. Work from earlier steps is kept: an approved translation is never redone, and a language that finished translating stays done.
 
