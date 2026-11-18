@@ -2,7 +2,7 @@
 
 > Philosophy based on "Codin' Dirty" by Carson Gross — important things should be big, unimportant things should be little. Minimize the total number of functions, structs, files, layers, and concepts in the system. Less code and fewer abstractions beat "purist" decomposition.
 
-The backend is Zig (0.17, the `minimum_zig_version` in `build.zig.zon`) with vendored C libraries (SQLite, libopus, libopusenc, libFLAC). The design lives in [docs/specification.md](docs/specification.md).
+The backend is Zig (0.17, the `minimum_zig_version` in `build.zig.zon`) with vendored C libraries (SQLite, libopus 1.6.1, libopusenc 0.3, libFLAC 1.5.0). The design lives in [docs/specification.md](docs/specification.md).
 
 ## Data and performance
 - Organize code around data and transformations.
