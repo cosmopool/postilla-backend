@@ -1,0 +1,255 @@
+diff --git a/build.zig b/build.zig
+index 7979b5a..70d2882 100644
+--- a/build.zig
++++ b/build.zig
+@@ -60,6 +60,7 @@ pub fn build(b: *std.Build) void {
+         .{ .name = "server", .module = server_mod },
+         .{ .name = "words", .module = words },
+     } });
++    const r2 = b.createModule(.{ .root_source_file = b.path("src/r2.zig") });
+     const test_step = b.step("test", "Run the integration tests");
+     // The configure phase is cached: without this, a file added to test/ is ignored
+     // until the cache is cleared.
+@@ -83,6 +84,7 @@ pub fn build(b: *std.Build) void {
+                 .{ .name = "harness", .module = harness },
+                 .{ .name = "words", .module = words },
+                 .{ .name = "tilla", .module = tilla },
++                .{ .name = "r2", .module = r2 },
+             },
+         }) });
+         if (coverage) {
+diff --git a/docs/roadmap.md b/docs/roadmap.md
+index f7b2882..5fa09c8 100644
+--- a/docs/roadmap.md
++++ b/docs/roadmap.md
+@@ -106,9 +106,9 @@ A draft has a `revision` (`u32`) that every change to it bumps, by a client or b
+ 
+ #### Retries
+ 
+-Each call to an outside service (OpenCode, Speechify, R2) is tried up to 3 times, waiting 5 s, 30 s, then 2 min between tries. A network error, a 429 or a 5xx counts as a failed try.
++Each call to an outside service (OpenCode, Speechify, R2) is tried and retried as the spec's [Retries](specification.md#retries) says.
+ 
+-After the third failed try, the draft becomes `failed`. It stores the step that failed, the error, and the attempt count.
++After the last failed try, the draft becomes `failed`. It stores the step that failed, the error, and the attempt count.
+ 
+ `POST /drafts/<id>/resume` reruns the failed step from scratch with a fresh try count. Work from earlier steps is kept: an approved translation is never redone, and a language that finished translating stays done.
+ 
+diff --git a/docs/specification.md b/docs/specification.md
+index e357d7e..80b5caf 100644
+--- a/docs/specification.md
++++ b/docs/specification.md
+@@ -148,6 +148,7 @@ dict/<sha256>.db.gz                         a dictionary build
+ - A republish whose audio didn't change gives the same `.opus` and `.flac` keys, so no app downloads them again. The `.tilla` names its `.opus` by `opus_sha256`.
+ - The app builds each `.tilla.gz` URL from a feed record's `id`, `lang` and `sha256`, and the `.opus` URL from the `.tilla`.
+ - A translation without narration has no `.opus` or `.flac`; its `.tilla` has `audio_ms` 0.
++- The CLI talks to R2's S3 API (`src/r2.zig`) at `https://<account>.r2.cloudflarestorage.com`, path-style (`/<bucket>/<key>`), signing every request with SigV4: region `auto`, service `s3`, signed headers `host;x-amz-content-sha256;x-amz-date`, and `x-amz-content-sha256` set to the body's hex sha256. Every object goes up in one PUT, with `Content-Type` by extension (`.tilla.gz` `application/gzip`, `.opus` `audio/ogg`, `.flac` `audio/flac`), the immutable `Cache-Control` above, and never a `Content-Encoding`: a client would gunzip the `.tilla.gz` and its sha256 check would fail.
+ - `stories/` is written only by `postilla publish`; the server never touches R2. The `dict/` keys belong to the postilla-content build ([content-handoff.md](content-handoff.md#4-publishing-dictdb)); the CLI only reads them, and the build never touches `stories/`.
+ 
+ ## Endpoints
+@@ -413,7 +414,7 @@ Builds every translation's `.tilla`, uploads the files and publishes the story.
+ 
+ A word takes the most common band among the lemmas its form leads to in `dict.db` (1 before 2 before 3 before 0): "porta" (*portare* 1, *porgere* 2) counts as band 1. A word with no lemma counts as band 0. Words are split, normalized and looked up by the shared `words` module, the same way the app looks them up on tap ([tilla.md, Words](tilla.md#words)).
+ 
+-The CLI gets `dict.db` the same way the app does: it reads `dict/latest` from the public bucket, downloads that build into `POSTILLA_DICT_DIR` if it doesn't have it, and computes `band_words` from it. It keeps only the current build there and deletes older ones once it has switched. An R2 failure there is a failed try like any other R2 call. An older story's `band_words` reflect the bands at its publish time until it is republished.
++The CLI gets `dict.db` the same way the app does: it reads `dict/latest` from the public bucket, downloads that build into `POSTILLA_DICT_DIR` if it doesn't have it, and computes `band_words` from it. The build is kept as `<POSTILLA_DICT_DIR>/<sha256>.db`, named by the `.gz`'s sha256; when that file is there nothing is downloaded. Otherwise the `.gz` is checked against `dict/latest`'s size and sha256 (a mismatch is a failed try), gunzipped into an unnamed temp file in the same directory and linked into place. It keeps only the current build there and deletes every other `*.db` once it has switched. A `dict/latest` that isn't the line CONTRACT.md describes fails at once. An R2 failure there is a failed try like any other R2 call. An older story's `band_words` reflect the bands at its publish time until it is republished.
+ 
+ A `.tilla` word is only a span, looked up by form; `dict.db` entry ids change between builds (ARQ-35) and nothing stores them, so a dictionary rebuild never touches a published story.
+ 
+@@ -425,9 +426,11 @@ It uploads every translation's `.tilla.gz`, `.opus` and `.flac` to R2 under the
+ 
+ ### Retries
+ 
+-Each call to an outside service (OpenCode, Speechify, R2) is tried up to 3 times, waiting 5 s, 30 s, then 2 min between tries. A network error, a 429 or a 5xx counts as a failed try.
++Each call to an outside service (OpenCode, Speechify, R2) goes through `outbound.request` (`src/outbound.zig`) and gets 4 tries in all (1 + 3 retries), waiting 5 s, 30 s, then 2 min between them. A network error, a timeout, a 429 or a 5xx counts as a failed try; a `Retry-After` in seconds on a 429 or a 503 replaces the scheduled wait, capped at 2 min. Any other status ends the call at once with that status.
+ 
+-After the third failed try, the command stops with the step that failed and the error. Rerunning it starts that step over, keeping what `story.json` already holds.
++A try times out after 10 s without a connection, or 60 s after connecting without the whole answer. The HTTP client has no timeouts of its own, so the try runs as a task that is canceled when either time runs out.
++
++After the fourth failed try, the command stops with the step that failed and the error. Rerunning it starts that step over, keeping what `story.json` already holds.
+ 
+ ## Database
+ 
+diff --git a/src/outbound.zig b/src/outbound.zig
+new file mode 100644
+index 0000000..495dc3d
+--- /dev/null
++++ b/src/outbound.zig
+@@ -0,0 +1,63 @@
++//! One outbound HTTP call with the owner's retry schedule and timeouts
++//! (docs/specification.md, Retries). Every outside service goes through `request`.
++
++const std = @import("std");
++const Io = std.Io;
++const Allocator = std.mem.Allocator;
++
++/// The waits between a call's 4 tries, the longest wait allowed, and the timeouts.
++pub const Retry = struct {
++    waits_ms: [3]u32 = .{ 5_000, 30_000, 120_000 },
++    max_wait_ms: u32 = 120_000,
++    connect_timeout_ms: u32 = 10_000,
++    idle_timeout_ms: u32 = 60_000,
++};
++
++/// Sends `method` to `url` in up to 4 tries. A network error, a timeout, a 429 or a 5xx is
++/// retried after the scheduled wait, or after a 429's or 503's Retry-After, capped at
++/// `retry.max_wait_ms`; any other status returns at once. When `digest` isn't empty, a 200
++/// whose body isn't `<hex sha256> <size>\n` as `digest` says is a failed try too. Returns
++/// the last status and body, in `a`, or the last error.
++pub fn request(io: Io, a: Allocator, retry: Retry, method: std.http.Method, url: []const u8, headers: []const std.http.Header, body: []const u8, digest: []const u8) !struct { status: std.http.Status, body: []u8 } {
++    var client: std.http.Client = .{ .allocator = a, .io = io };
++    defer client.deinit();
++    const uri = try std.Uri.parse(url);
++    var n: usize = 0;
++    while (true) : (n += 1) {
++        // The client has no timeouts: the try is a task, canceled when it hasn't connected
++        // or hasn't finished in time.
++        var events: [2]Io.Event = .{ .unset, .unset };
++        var got: []u8 = "";
++        var wait: u64 = retry.waits_ms[@min(n, 2)];
++        var task = try io.concurrent(send, .{ &client, method, uri, headers, body, &events, &got, &wait });
++        events[0].waitTimeout(io, .{ .duration = .{ .raw = .fromMilliseconds(retry.connect_timeout_ms), .clock = .awake } }) catch {};
++        if (events[0].isSet()) events[1].waitTimeout(io, .{ .duration = .{ .raw = .fromMilliseconds(retry.idle_timeout_ms), .clock = .awake } }) catch {};
++        if (task.cancel(io)) |status| {
++            var sha: [32]u8 = undefined;
++            std.crypto.hash.sha2.Sha256.hash(got, &sha, .{});
++            const bad = status == .ok and digest.len > 0 and !std.mem.eql(u8, digest, try std.fmt.allocPrint(a, "{s} {d}\n", .{ &std.fmt.bytesToHex(sha, .lower), got.len }));
++            if (!bad and status != .too_many_requests and status.class() != .server_error) return .{ .status = status, .body = got };
++            if (n == 3) return if (bad) error.DigestMismatch else .{ .status = status, .body = got };
++        } else |err| if (n == 3) return err;
++        try io.sleep(.fromMilliseconds(@intCast(@min(wait, retry.max_wait_ms))), .awake);
++    }
++}
++
++/// One try: sets `events[0]` once connected and both when done, the body into `got`, and a
++/// 429's or 503's Retry-After into `wait`.
++fn send(client: *std.http.Client, method: std.http.Method, uri: std.Uri, headers: []const std.http.Header, body: []const u8, events: *[2]Io.Event, got: *[]u8, wait: *u64) !std.http.Status {
++    defer for (events) |*e| e.set(client.io);
++    var req = try client.request(method, uri, .{ .extra_headers = headers });
++    defer req.deinit();
++    events[0].set(client.io);
++    // Only read: `sendBodyComplete` sends the buffer it is given as the body.
++    try req.sendBodyComplete(@constCast(body));
++    var response = try req.receiveHead(&.{});
++    var it = response.head.iterateHeaders();
++    while (it.next()) |h| {
++        if (std.ascii.eqlIgnoreCase(h.name, "retry-after") and (response.head.status == .too_many_requests or response.head.status == .service_unavailable))
++            wait.* = 1000 * @as(u64, std.fmt.parseInt(u32, h.value, 10) catch continue);
++    }
++    got.* = try response.reader(&.{}).allocRemaining(client.allocator, .unlimited);
++    return response.head.status;
++}
+diff --git a/src/r2.zig b/src/r2.zig
+new file mode 100644
+index 0000000..b18ba69
+--- /dev/null
++++ b/src/r2.zig
+@@ -0,0 +1,109 @@
++//! R2 through its S3 API: SigV4-signed, path-style uploads and downloads, and the
++//! dictionary cache (docs/specification.md, Files in R2 and Vocabulary coverage).
++
++const std = @import("std");
++const Io = std.Io;
++const Allocator = std.mem.Allocator;
++const outbound = @import("outbound.zig");
++
++/// What a call answers: the final status and body.
++const Response = @typeInfo(@typeInfo(@TypeOf(outbound.request)).@"fn".return_type.?).error_union.payload;
++
++pub const Client = struct {
++    /// `https://<account>.r2.cloudflarestorage.com`, built by the caller.
++    endpoint: []const u8,
++    bucket: []const u8,
++    access_key_id: []const u8,
++    secret_access_key: []const u8,
++    retry: outbound.Retry = .{},
++
++    /// Uploads `body` as `key`, typed by its extension and cached as immutable.
++    pub fn put(c: Client, io: Io, a: Allocator, key: []const u8, body: []const u8) !Response {
++        const content_type = if (std.mem.endsWith(u8, key, ".opus")) "audio/ogg" else if (std.mem.endsWith(u8, key, ".flac")) "audio/flac" else "application/gzip";
++        return c.call(io, a, .PUT, key, body, &.{
++            .{ .name = "content-type", .value = content_type },
++            .{ .name = "cache-control", .value = "public, max-age=31536000, immutable" },
++        }, "");
++    }
++
++    pub fn get(c: Client, io: Io, a: Allocator, key: []const u8) !Response {
++        return c.call(io, a, .GET, key, "", &.{}, "");
++    }
++
++    /// Makes `<dir>/<sha256>.db` the build `dict/latest` names, downloading, checking and
++    /// gunzipping it unless it is there, then deletes every other `.db` in `dir`. Returns
++    /// its path.
++    pub fn dict(c: Client, io: Io, a: Allocator, dir_path: []const u8) ![]const u8 {
++        const latest = try c.get(io, a, "dict/latest");
++        if (latest.status != .ok) return error.R2Status;
++        const line = latest.body;
++        if (line.len < 67 or line[64] != ' ' or line[line.len - 1] != '\n' or
++            std.mem.findNone(u8, line[0..64], "0123456789abcdef") != null or
++            std.mem.findNone(u8, line[65 .. line.len - 1], "0123456789") != null) return error.BadDictLatest;
++        const name = try std.fmt.allocPrint(a, "{s}.db", .{line[0..64]});
++        const path = try std.fmt.allocPrint(a, "{s}/{s}", .{ dir_path, name });
++        var dir = try Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true });
++        defer dir.close(io);
++        if (dir.access(io, name, .{})) |_| return path else |_| {}
++
++        const gz = try c.call(io, a, .GET, try std.fmt.allocPrint(a, "dict/{s}.db.gz", .{line[0..64]}), "", &.{}, line);
++        if (gz.status != .ok) return error.R2Status;
++        var file = try dir.createFileAtomic(io, name, .{});
++        defer file.deinit(io);
++        var in: Io.Reader = .fixed(gz.body);
++        var window: [std.compress.flate.max_window_len]u8 = undefined;
++        var gunzip: std.compress.flate.Decompress = .init(&in, .gzip, &window);
++        var buf: [4096]u8 = undefined;
++        var out = file.file.writer(io, &buf);
++        _ = try gunzip.reader.streamRemaining(&out.interface);
++        try out.interface.flush();
++        try file.link(io);
++
++        var it = dir.iterate();
++        while (try it.next(io)) |e| {
++            if (std.mem.endsWith(u8, e.name, ".db") and !std.mem.eql(u8, e.name, name)) try dir.deleteFile(io, e.name);
++        }
++        return path;
++    }
++
++    /// `method` on `/<bucket>/<key>`, signed with SigV4 (region `auto`, service `s3`).
++    fn call(c: Client, io: Io, a: Allocator, method: std.http.Method, key: []const u8, body: []const u8, extra: []const std.http.Header, digest: []const u8) !Response {
++        const secs: std.time.epoch.EpochSeconds = .{ .secs = @intCast(Io.Clock.real.now(io).toSeconds()) };
++        const day = secs.getEpochDay().calculateYearDay();
++        const md = day.calculateMonthDay();
++        const t = secs.getDaySeconds();
++        const date = try std.fmt.allocPrint(a, "{d:0>4}{d:0>2}{d:0>2}T{d:0>2}{d:0>2}{d:0>2}Z", .{
++            day.year, md.month.numeric(), md.day_index + 1, t.getHoursIntoDay(), t.getMinutesIntoHour(), t.getSecondsIntoMinute(),
++        });
++        const scope = try std.fmt.allocPrint(a, "{s}/auto/s3/aws4_request", .{date[0..8]});
++        const path = try std.fmt.allocPrint(a, "/{s}/{s}", .{ c.bucket, key });
++        const hash = sha256(body);
++        const canonical = try std.fmt.allocPrint(
++            a,
++            "{t}\n{s}\n\nhost:{s}\nx-amz-content-sha256:{s}\nx-amz-date:{s}\n\nhost;x-amz-content-sha256;x-amz-date\n{s}",
++            .{ method, path, c.endpoint[std.mem.find(u8, c.endpoint, "://").? + 3 ..], &hash, date, &hash },
++        );
++        const to_sign = try std.fmt.allocPrint(a, "AWS4-HMAC-SHA256\n{s}\n{s}\n{s}", .{ date, scope, &sha256(canonical) });
++        var k: [32]u8 = undefined;
++        std.crypto.auth.hmac.sha2.HmacSha256.create(&k, date[0..8], try std.fmt.allocPrint(a, "AWS4{s}", .{c.secret_access_key}));
++        inline for (.{ "auto", "s3", "aws4_request", to_sign }) |m| std.crypto.auth.hmac.sha2.HmacSha256.create(&k, m, &k);
++        const authorization = try std.fmt.allocPrint(
++            a,
++            "AWS4-HMAC-SHA256 Credential={s}/{s}, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature={s}",
++            .{ c.access_key_id, scope, &std.fmt.bytesToHex(k, .lower) },
++        );
++        const headers = try std.mem.concat(a, std.http.Header, &.{ extra, &.{
++            .{ .name = "x-amz-date", .value = date },
++            .{ .name = "x-amz-content-sha256", .value = &hash },
++            .{ .name = "authorization", .value = authorization },
++        } });
++        const url = try std.fmt.allocPrint(a, "{s}{s}", .{ c.endpoint, path });
++        return outbound.request(io, a, c.retry, method, url, headers, body, digest);
++    }
++};
++
++fn sha256(data: []const u8) [64]u8 {
++    var digest: [32]u8 = undefined;
++    std.crypto.hash.sha2.Sha256.hash(data, &digest, .{});
++    return std.fmt.bytesToHex(digest, .lower);
++}

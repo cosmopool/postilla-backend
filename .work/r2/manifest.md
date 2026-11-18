@@ -27,7 +27,11 @@
 - `test/harness.zig`'s free-port, in-process server pattern for the fake.
 
 ## Budget
-added 300 · new files 2 · new public symbols 3
+added 300 · new files 2 · new public symbols 6
+
+Raised from 3 after stage 1: `budget.sh` counts methods, so `Client.put`, `Client.get` and
+`Client.dict` count on top of `request`, `Retry` and `Client`. All six are needed (the tests
+and the CLI call them across modules). Logged in questions.md.
 
 ## API
 settled

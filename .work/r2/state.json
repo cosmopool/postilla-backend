@@ -4,13 +4,13 @@
   "jira": "",
   "base": "93c1c2af1bd23806a4845df2964ba010d703e328",
   "stage": "build",
-  "step": "tests",
+  "step": "apply",
   "round": null,
-  "commit": "f2035aa60afcf0c216d7662ca7db780c3261fa5a",
+  "commit": "9f0ff39d875d8ba7f1d23e957df51d2f7caa1acf",
   "budget": {
     "added": 300,
     "newFiles": 2,
-    "newSymbols": 3
+    "newSymbols": 6
   },
   "api": "settled",
   "pending": null,
@@ -26,6 +26,12 @@
       "step": "tests",
       "round": null,
       "commit": "f2035aa60afcf0c216d7662ca7db780c3261fa5a"
+    },
+    {
+      "stage": "build",
+      "step": "apply",
+      "round": null,
+      "commit": "9f0ff39d875d8ba7f1d23e957df51d2f7caa1acf"
     }
   ]
 }

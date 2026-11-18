@@ -1,0 +1,67 @@
+== apply
+== generate
+== dependencies
+== analyze
+== test
+test
++- run test
+   +- compile test debug native 1 errors
+src/tilla.zig:1:1: error: unable to load "tilla.zig": ProcessFdQuotaExceeded
+test/tilla-writer_repro_r1_1.zig:5:23: note: file imported here
+const tilla = @import("tilla");
+                      ^~~~~~~
+error: 1 compilation errors
+failed command: /home/agent/.local/zig/zig test -Odebug --dep server --dep harness --dep words --dep tilla --dep r2 -Mroot=test/tilla-writer_repro_r1_1.zig -cflags -DSQLITE_THREADSAFE=2 -DSQLITE_DQS=0 -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_OMIT_DEPRECATED -DSQLITE_OMIT_SHARED_CACHE -DSQLITE_LIKE_DOESNT_MATCH_BLOBS -- zig-pkg/N-V-__8AALc_rgC04POe18O0LKFRm4ouQpLtL3riscEmWp-Q/sqlite3.c -Odebug -I zig-pkg/N-V-__8AALc_rgC04POe18O0LKFRm4ouQpLtL3riscEmWp-Q --dep c -Mserver=src/server.zig -Odebug --dep server -Mharness=test/harness.zig -Mwords=src/words.zig --dep c --dep server --dep words -Mtilla=src/tilla.zig -Mr2=src/r2.zig -Odebug -Mc=.zig-cache/o/f0115e454aad44c6fdf56e2c3efd3b9b/c.zig -lc --cache-dir .zig-cache --global-cache-dir /home/agent/.cache/zig --build-root . --name test --zig-lib-dir /home/agent/.local/zig/lib/ --listen=-
+
+test
++- run test
+   +- compile test debug native 1 errors
+test/r2.zig:1:1: error: unable to load "r2.zig": ProcessFdQuotaExceeded
+error: 1 compilation errors
+failed command: /home/agent/.local/zig/zig test -Odebug --dep server --dep harness --dep words --dep tilla --dep r2 -Mroot=test/r2.zig -cflags -DSQLITE_THREADSAFE=2 -DSQLITE_DQS=0 -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_OMIT_DEPRECATED -DSQLITE_OMIT_SHARED_CACHE -DSQLITE_LIKE_DOESNT_MATCH_BLOBS -- zig-pkg/N-V-__8AALc_rgC04POe18O0LKFRm4ouQpLtL3riscEmWp-Q/sqlite3.c -Odebug -I zig-pkg/N-V-__8AALc_rgC04POe18O0LKFRm4ouQpLtL3riscEmWp-Q --dep c -Mserver=src/server.zig -Odebug --dep server -Mharness=test/harness.zig -Mwords=src/words.zig --dep c --dep server --dep words -Mtilla=src/tilla.zig -Mr2=src/r2.zig -Odebug -Mc=.zig-cache/o/f0115e454aad44c6fdf56e2c3efd3b9b/c.zig -lc --cache-dir .zig-cache --global-cache-dir /home/agent/.cache/zig --build-root . --name test --zig-lib-dir /home/agent/.local/zig/lib/ --listen=-
+
+test
++- run test
+   +- compile test debug native 1 errors
+zig-pkg/N-V-__8AALc_rgC04POe18O0LKFRm4ouQpLtL3riscEmWp-Q/sqlite3.c:1:1: error: checking cache failed: file_open ProcessFdQuotaExceeded /home/arrow/Development/postilla-backend/zig-pkg/N-V-__8AALc_rgC04POe18O0LKFRm4ouQpLtL3riscEmWp-Q/sqlite3.c
+error: 1 compilation errors
+failed command: /home/agent/.local/zig/zig test -Odebug --dep server --dep harness --dep words --dep tilla --dep r2 -Mroot=test/server-read_repro_r1_2.zig -cflags -DSQLITE_THREADSAFE=2 -DSQLITE_DQS=0 -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_OMIT_DEPRECATED -DSQLITE_OMIT_SHARED_CACHE -DSQLITE_LIKE_DOESNT_MATCH_BLOBS -- zig-pkg/N-V-__8AALc_rgC04POe18O0LKFRm4ouQpLtL3riscEmWp-Q/sqlite3.c -Odebug -I zig-pkg/N-V-__8AALc_rgC04POe18O0LKFRm4ouQpLtL3riscEmWp-Q --dep c -Mserver=src/server.zig -Odebug --dep server -Mharness=test/harness.zig -Mwords=src/words.zig --dep c --dep server --dep words -Mtilla=src/tilla.zig -Mr2=src/r2.zig -Odebug -Mc=.zig-cache/o/f0115e454aad44c6fdf56e2c3efd3b9b/c.zig -lc --cache-dir .zig-cache --global-cache-dir /home/agent/.cache/zig --build-root . --name test --zig-lib-dir /home/agent/.local/zig/lib/ --listen=-
+
+test
++- run test stderr
+[db] (warn): unable to open database file
+[db] (warn): file is not a database
+[db] (warn): no such table: form
+failed command: ./.zig-cache/o/cc36d770769b7ebaff0533809956cba4/test --cache-dir=./.zig-cache --seed=0x6b19109c --listen=-
+
+test
++- run test stderr
+[db] (warn): language ids are permanent
+[db] (warn): language ids are permanent
+[db] (warn): author ids are permanent
+[db] (warn): author ids are permanent
+[db] (warn): no such table: story
+[db] (warn): no such table: tag
+[db] (warn): CHECK constraint failed: user_version <= 1
+[db] (warn): unable to open database file
+failed command: ./.zig-cache/o/cdff0c502c878069a5535d6e9604d9e5/test --cache-dir=./.zig-cache --seed=0x6b19109c --listen=-
+
+test
++- run test stderr
+[db] (warn): read-only
+[db] (warn): read-only
+[db] (warn): read-only
+[db] (warn): read-only
+[db] (warn): read-only
+[db] (warn): read-only
+failed command: ./.zig-cache/o/50dcc90b7aba68d814a26dac174f9a73/test --cache-dir=./.zig-cache --seed=0x6b19109c --listen=-
+
+Build Summary: 15/22 steps succeeded (3 failed); 43/43 tests passed
+test transitive failure
++- run test transitive failure
+|  +- compile test debug native 1 errors
++- run test transitive failure
+|  +- compile test debug native 1 errors
++- run test transitive failure
+   +- compile test debug native 1 errors
+
