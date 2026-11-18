@@ -257,7 +257,7 @@ postilla narrate   <folder>                             narrate every language w
 postilla publish   <folder>                             build the .tilla files, upload to R2, POST /stories
 ```
 
-The CLI reads the lists from the server's public endpoints (`GET /languages`, `GET /genres`, `GET /tags`, `GET /authors` at `POSTILLA_SERVER_URL`), so it never needs `postilla.db`. A command that fails prints one line naming the step and the reason and exits non-zero, leaving `story.json` as it was before that step. The exit code is 0 on success, 1 on any failure and 2 for a usage error (an unknown command or a missing folder).
+The CLI reads the lists from the server's public endpoints (`GET /languages`, `GET /genres`, `GET /tags`, `GET /authors` at `POSTILLA_SERVER_URL`), so it never needs `postilla.db`. A command that fails prints one line naming the step and the reason and exits non-zero, leaving `story.json` as it was before that step. The exit code is 0 on success, 1 on any failure and 2 for a usage error (an unknown command, a missing folder, an unknown or repeated flag, or `--redo` without a language).
 
 ### Story folder
 
@@ -321,28 +321,40 @@ Every command checks `story.json` before it does anything, and stops on the firs
 
 ### `postilla translate`
 
-Translates the story into every language with `translate` 1 (today only `pt-BR`) that `translations` lacks. A rerun never overwrites a translation already there, so hand edits survive it. `--redo <lang>` first drops that language, which must be one with `translate` 1, then translates it again. When there is nothing to translate, the command does nothing, not even moderation.
+Translates the story into every language with `translate` 1 (today only `pt-BR`) that `translations` lacks. A rerun never overwrites a translation already there, so hand edits survive it. `--redo <lang>` first drops that language, which must be one with `translate` 1 (any other, `it` included, stops the command before any request), then translates it again; the new translation goes after the other languages. When there is nothing to translate, the command does nothing, not even moderation, and `story.json` stays byte for byte as it was.
 
-**Moderation** runs first, every time the command translates something. The Italian text (title, subtitle and sentences) goes to Jev (`jev-1.13`, OpenCode key) in `state`, with one `choice` question. Its options are `none`, `homophobic`, `racist`, `sexist`, `religious` and `other_hate`, each described in the question's `criteria`.
+`story.json` is written once after moderation (the scores, also on a rejection), then once after each finished language, as `story.json.tmp` renamed over `story.json`, so a crash never leaves half a file. It is written with `std.json` at two-space indent, in the field order it was read in: a hand layout is reformatted on the first write.
+
+**Moderation** runs first, every time the command translates something. The Italian text goes to Jev (`jev-1.13`, OpenCode key) in `state`: the title, the subtitle, then each paragraph's sentences joined by one space, each on its own line. It carries one `choice` question, `hate`, with `instructions` `Does this Italian text contain hate speech? Pick the kind, or none.` Its options are `none`, `homophobic`, `racist`, `sexist`, `religious` and `other_hate`, each described in the question's `criteria`:
+
+| Option | Criterion |
+|---|---|
+| `none` | No hate speech: the text attacks no group for who they are |
+| `homophobic` | Attacks or demeans people for their sexual orientation or gender identity |
+| `racist` | Attacks or demeans people for their race, ethnicity or nationality |
+| `sexist` | Attacks or demeans people for their sex or gender |
+| `religious` | Attacks or demeans people for their religion |
+| `other_hate` | Attacks or demeans another protected group, such as disabled people |
 
 - Jev returns a probability for each option and no explanation.
-- The text is rejected when `P(none)` is below the threshold: env `POSTILLA_MODERATION_THRESHOLD`, default `0.9`.
-- The scores are written to `moderation` either way. On a rejection the command prints the six scores and the option with the highest probability, so a rejection says what was flagged, and exits non-zero without translating.
-- `--force` is the override for a false positive: the command moderates again, writes the scores with `forced` true, and translates anyway.
+- The text is rejected when `P(none)` is below the threshold: env `POSTILLA_MODERATION_THRESHOLD`, default `0.9`. A threshold that isn't a number from 0 to 1 stops the command, naming the variable, before any request.
+- The scores are written to `moderation` either way. On a rejection the command prints the six scores and the option other than `none` with the highest probability, so a rejection says what was flagged, and exits non-zero without translating.
+- `--force` is the override for a false positive: the command moderates again, writes the scores with `forced` true, and translates anyway. A text that passes writes `forced` false, with or without `--force`.
+- A reply that isn't Jev's JSON with the `hate` answer and all six probabilities stops the command (`moderation: <reason>`), as does a failed call (see [Retries](#retries)).
 - Jev's docs don't say whether it reads Italian. A fixed test set of Italian texts, both clean and hateful, runs through Jev before this step is trusted, and stays as a regression check. If Jev handles Italian poorly, moderation moves to the Portuguese translation.
 
-Request: `POST https://opencode.ai/inference/systemone/v1/systemone`, with `Authorization: Bearer $POSTILLA_OPENCODE_KEY`.
+Request: `POST $POSTILLA_OPENCODE_URL/systemone/v1/systemone`, with `Authorization: Bearer $POSTILLA_OPENCODE_KEY` and `user-agent: postilla/1.0`.
 
 **Translation** uses DeepSeek (`deepseek-v4.1-flash`, OpenCode key), one pass per language. A language is written into `story.json` only once all of it is done, so after a failure a rerun redoes only the languages without a finished translation, and the error names the language that failed (`pt-BR: paragraph 4: wrong sentence count`).
 
 Each pass translates paragraph by paragraph, in reading order. It sends the title and subtitle first, as one extra two-sentence paragraph with the same request shape and length check, so every translation gets its own `title` and `subtitle` with no other code path. Each request carries one paragraph's Italian sentences, and the reply must be a JSON array of strings of the same length. That keeps the 1:1 sentence alignment the app needs (TRA-08).
 
-- A reply that isn't a JSON array of strings, or has the wrong number of sentences, counts as a failed try (see [Retries](#retries)).
-- After the third failed try the command stops, and the error names the language and the paragraph.
+- A paragraph gets 3 tries. Each is one full call (with its own retries, see [Retries](#retries)); a reply whose `choices[0].message.content` isn't a JSON array of strings (code fences included), or has the wrong number of sentences, starts the next try at once.
+- After the third failed try the command stops with `<lang>: paragraph <n>: <reason>`, `n` counting from 1 and the title paragraph 0. A call that fails (any status but 200 once its retries are spent) stops it at once, naming the language and the status.
 
 OpenCode Zen documents no JSON mode for this model, so the length check above is the only guarantee.
 
-Request: `POST https://opencode.ai/inference/openai/v1/chat/completions` (OpenAI-compatible), with `Authorization: Bearer $POSTILLA_OPENCODE_KEY`. The request sets `model` to `deepseek-v4.1-flash` and `temperature` to `0.3`, and has two messages.
+Request: `POST $POSTILLA_OPENCODE_URL/go/v1/chat/completions` (OpenCode Go, OpenAI-compatible), with `Authorization: Bearer $POSTILLA_OPENCODE_KEY`, `user-agent: postilla/1.0` and `x-opencode-session`, one random UUID per command run, the same on every DeepSeek request. The request sets `model` to `deepseek-v4.1-flash` and `temperature` to `0.3`, and has two messages.
 
 System message, with `{language}` replaced by the target language's English prompt name and `{level}` by `A1`, `A2`, `B1`, `B2`, `C1` or `C2`:
 
@@ -513,6 +525,7 @@ Everything comes from env, read and checked once at startup. A missing required 
 | `POSTILLA_SERVER_URL` | required | Base URL of `postilla-server` (`https://api.example.com`) |
 | `POSTILLA_AUTHOR_TOKEN` | required | The server's bearer token, for `POST /stories` |
 | `POSTILLA_OPENCODE_KEY` | required | OpenCode key, for Jev and DeepSeek |
+| `POSTILLA_OPENCODE_URL` | `https://opencode.ai/inference` | OpenCode's base URL; `translate` stops naming it when it has no `://` |
 | `POSTILLA_SPEECHIFY_KEY` | required | Speechify key |
 | `POSTILLA_R2_ACCOUNT_ID` | required | Cloudflare account id |
 | `POSTILLA_R2_ENDPOINT` | `https://<account>.r2.cloudflarestorage.com` | R2's S3 API base URL, when it isn't the account's |
