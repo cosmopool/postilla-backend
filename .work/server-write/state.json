@@ -1,0 +1,25 @@
+{
+  "slug": "server-write",
+  "branch": "work/server-write",
+  "jira": "",
+  "base": "c32b62c41cae86e171e2d6315951797f9e4e596b",
+  "stage": "open",
+  "step": "approved",
+  "round": null,
+  "commit": "c32b62c41cae86e171e2d6315951797f9e4e596b",
+  "budget": {
+    "added": 300,
+    "newFiles": 0,
+    "newSymbols": 0
+  },
+  "api": "settled",
+  "pending": null,
+  "history": [
+    {
+      "stage": "open",
+      "step": "approved",
+      "round": null,
+      "commit": "c32b62c41cae86e171e2d6315951797f9e4e596b"
+    }
+  ]
+}
