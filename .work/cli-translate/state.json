@@ -1,12 +1,12 @@
 {
   "slug": "cli-translate",
-  "branch": "main",
+  "branch": "work/cli-translate",
   "jira": "",
   "base": "d0857375c2d1fd111aa77fe910891d5043fed9aa",
   "stage": "open",
   "step": "approved",
   "round": null,
-  "commit": "d0857375c2d1fd111aa77fe910891d5043fed9aa",
+  "commit": "95c75e5cb04bab66be37b5055fd8cc4b15cb8bda",
   "budget": {
     "added": 300,
     "newFiles": 2,
@@ -20,6 +20,12 @@
       "step": "approved",
       "round": null,
       "commit": "d0857375c2d1fd111aa77fe910891d5043fed9aa"
+    },
+    {
+      "stage": "open",
+      "step": "approved",
+      "round": null,
+      "commit": "95c75e5cb04bab66be37b5055fd8cc4b15cb8bda"
     }
   ]
 }
