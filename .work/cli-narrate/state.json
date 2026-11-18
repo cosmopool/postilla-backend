@@ -4,9 +4,9 @@
   "jira": "",
   "base": "2be599996f7a0a49b9be79f0e591827ca388a745",
   "stage": "verify",
-  "step": "round-1",
-  "round": 1,
-  "commit": "a7f1278fbd0c270f8e85f56e6ffe772c05937206",
+  "step": "round-2",
+  "round": 2,
+  "commit": "03ec266cec304517941882a2b42a30589d572063",
   "budget": {
     "added": 300,
     "newFiles": 0,
@@ -44,14 +44,21 @@
       "step": "round-1",
       "round": 1,
       "commit": "a7f1278fbd0c270f8e85f56e6ffe772c05937206"
+    },
+    {
+      "stage": "verify",
+      "step": "round-2",
+      "round": 2,
+      "commit": "03ec266cec304517941882a2b42a30589d572063"
     }
   ],
   "verify": {
-    "round": 1,
-    "newCritical": 1,
+    "round": 2,
+    "newCritical": 0,
     "seen": [
       "src/cli.zig: A Speechify word mark whose start_time or end_time does not fit in u32 crashes narrate (@intFromFloat panic) instead of failing the try",
-      "src/cli.zig: narrate's PCM buffer is regrown in the arena per event and re-created per try, keeping about 3x the PCM per try"
+      "src/cli.zig: narrate's PCM buffer is regrown in the arena per event and re-created per try, keeping about 3x the PCM per try",
+      "src/cli.zig: New bad-stream condition (mark time outside u32 ms) is not in the spec's bad-stream list"
     ]
   }
 }
