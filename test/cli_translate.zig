@@ -383,20 +383,39 @@ const FakeOpenCode = struct {
             var request = http.receiveHead() catch return;
             const keep_alive = request.head.keep_alive;
             const answer = f.receive(&request) catch return;
-            const retry_after = [_]std.http.Header{.{ .name = "retry-after", .value = "0" }};
+            var extra: [2]std.http.Header = undefined;
+            var n: usize = 0;
+            if (answer.status == .service_unavailable) extra[n] = .{ .name = "retry-after", .value = "0" };
+            n += @intFromBool(answer.status == .service_unavailable);
+            if (answer.gzip) extra[n] = .{ .name = "content-encoding", .value = "gzip" };
+            n += @intFromBool(answer.gzip);
             request.respond(answer.body, .{
                 .status = answer.status,
                 .keep_alive = keep_alive,
-                .extra_headers = retry_after[0..@intFromBool(answer.status == .service_unavailable)],
+                .extra_headers = extra[0..n],
             }) catch return;
             if (!keep_alive) return;
         }
     }
 
-    const Answer = struct { status: std.http.Status = .ok, body: []const u8 = "" };
+    const Answer = struct { status: std.http.Status = .ok, body: []const u8 = "", gzip: bool = false };
+
+    /// Like the real OpenCode, gzips the answer when the request accepts gzip.
+    fn receive(f: *FakeOpenCode, request: *std.http.Server.Request) !Answer {
+        var gzip_ok = false;
+        var headers = request.iterateHeaders();
+        while (headers.next()) |h| gzip_ok = gzip_ok or (std.ascii.eqlIgnoreCase(h.name, "accept-encoding") and std.mem.find(u8, h.value, "gzip") != null);
+        var answer = try f.reply(request);
+        if (!gzip_ok or answer.body.len == 0) return answer;
+        f.mutex.lockUncancelable(io);
+        defer f.mutex.unlock(io);
+        answer.body = try harness.gzip(f.arena.allocator(), answer.body);
+        answer.gzip = true;
+        return answer;
+    }
 
     /// Reads and records the request, then answers it as Jev, as DeepSeek, or with a 404.
-    fn receive(f: *FakeOpenCode, request: *std.http.Server.Request) !Answer {
+    fn reply(f: *FakeOpenCode, request: *std.http.Server.Request) !Answer {
         f.mutex.lockUncancelable(io);
         defer f.mutex.unlock(io);
         const a = f.arena.allocator();
@@ -405,7 +424,8 @@ const FakeOpenCode = struct {
         while (headers.next()) |h| {
             const v = try a.dupe(u8, h.value);
             if (std.ascii.eqlIgnoreCase(h.name, "authorization")) seen.authorization = v;
-            if (std.ascii.eqlIgnoreCase(h.name, "user-agent")) seen.user_agent = v;
+            // A second user-agent (the client's own beside ours) shows up as "repeated".
+            if (std.ascii.eqlIgnoreCase(h.name, "user-agent")) seen.user_agent = if (seen.user_agent.len > 0) "repeated" else v;
             if (std.ascii.eqlIgnoreCase(h.name, "x-opencode-session")) seen.session = v;
         }
         const body = try a.alloc(u8, request.head.content_length orelse 0);

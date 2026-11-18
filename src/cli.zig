@@ -209,11 +209,10 @@ fn command(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, fol
         const session_text = session.text();
         const headers = [_]std.http.Header{
             .{ .name = "authorization", .value = try std.fmt.allocPrint(a, "Bearer {s}", .{env.get("POSTILLA_OPENCODE_KEY").?}) },
-            .{ .name = "user-agent", .value = "postilla/1.0" },
             .{ .name = "x-opencode-session", .value = &session_text },
         };
         var scores: [6]f64 = undefined;
-        const status = moderate(io, a, opencode, headers[0..2], state.written(), &scores) catch |err| return fail(w, "moderation: {t}", .{err});
+        const status = moderate(io, a, opencode, headers[0..1], state.written(), &scores) catch |err| return fail(w, "moderation: {t}", .{err});
         if (status != .ok) return fail(w, "moderation: {d}", .{@backingInt(status)});
         const rejected = scores[0] < threshold;
         story.moderation = .{ .none = scores[0], .homophobic = scores[1], .racist = scores[2], .sexist = scores[3], .religious = scores[4], .other_hate = scores[5], .forced = rejected and force };
