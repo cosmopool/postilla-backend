@@ -49,6 +49,7 @@ fn send(client: *std.http.Client, method: std.http.Method, uri: std.Uri, headers
     defer for (events) |*e| e.set(client.io);
     var req = try client.request(method, uri, .{ .extra_headers = headers });
     defer req.deinit();
+    errdefer req.connection.?.closing = true;
     events[0].set(client.io);
     // Only read: `sendBodyComplete` sends the buffer it is given as the body.
     try req.sendBodyComplete(@constCast(body));
