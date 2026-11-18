@@ -1,0 +1,16 @@
+test
++- run test
+   +- compile test debug native 1 errors
+test/r2_repro_r1_1.zig:8:20: error: no module named 'r2' available within module 'root'
+const r2 = @import("r2");
+                   ^~~~
+referenced by:
+    test.a download that keeps receiving bytes outlasts the idle timeout and succeeds on its first try: test/r2_repro_r1_1.zig:65:14
+error: 1 compilation errors
+failed command: /home/agent/.local/zig/zig test -Odebug --dep server --dep harness --dep words --dep tilla -Mroot=test/r2_repro_r1_1.zig -cflags -DSQLITE_THREADSAFE=2 -DSQLITE_DQS=0 -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_OMIT_DEPRECATED -DSQLITE_OMIT_SHARED_CACHE -DSQLITE_LIKE_DOESNT_MATCH_BLOBS -- zig-pkg/N-V-__8AALc_rgC04POe18O0LKFRm4ouQpLtL3riscEmWp-Q/sqlite3.c -Odebug -I zig-pkg/N-V-__8AALc_rgC04POe18O0LKFRm4ouQpLtL3riscEmWp-Q --dep c -Mserver=src/server.zig -Odebug --dep server -Mharness=test/harness.zig -Mwords=src/words.zig --dep c --dep server --dep words -Mtilla=src/tilla.zig -Odebug -Mc=.zig-cache/o/cf434adadfa0888c22b68b223bc87d12/c.zig -lc --cache-dir .zig-cache --global-cache-dir /home/agent/.cache/zig --build-root . --name test --zig-lib-dir /home/agent/.local/zig/lib/ --listen=-
+
+Build Summary: 1/4 steps succeeded (1 failed)
+test transitive failure
++- run test transitive failure
+   +- compile test debug native 1 errors
+

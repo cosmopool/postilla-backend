@@ -1,0 +1,1 @@
+{"round":1,"newCritical":0,"seen":["src/outbound.zig: The 60 s timeout covers the whole transfer, so a slow upload or download that is still moving gets killed","src/r2.zig: SigV4 signature is computed once per call, not once per try as decided","src/outbound.zig: Failed try's HTTP connection is reused by every retry"]}
