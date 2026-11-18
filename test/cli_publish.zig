@@ -19,6 +19,8 @@ const server = @import("server");
 const tilla = @import("tilla");
 const harness = @import("harness");
 const Harness = harness.Harness;
+const sha256Hex = harness.sha256Hex;
+const gzip = harness.gzip;
 
 const io = std.testing.io;
 const gpa = std.testing.allocator;
@@ -291,23 +293,6 @@ fn letters(a: Allocator, n: usize) ![]u8 {
     const out = try a.alloc(u8, 2 * n);
     for (0..n) |i| @memcpy(out[2 * i ..][0..2], "\u{e0}");
     return out;
-}
-
-/// The lowercase hex sha256 of `data`.
-fn sha256Hex(data: []const u8) [64]u8 {
-    var digest: [32]u8 = undefined;
-    Sha256.hash(data, &digest, .{});
-    return std.fmt.bytesToHex(digest, .lower);
-}
-
-/// `data` gzipped.
-fn gzip(a: Allocator, data: []const u8) ![]u8 {
-    var gz: std.Io.Writer.Allocating = try .initCapacity(a, 64);
-    var window: [std.compress.flate.max_window_len]u8 = undefined;
-    var z: std.compress.flate.Compress = try .init(&gz.writer, &window, .gzip, .default);
-    try z.writer.writeAll(data);
-    try z.finish();
-    return gz.written();
 }
 
 /// The `.gz` decompressed.
