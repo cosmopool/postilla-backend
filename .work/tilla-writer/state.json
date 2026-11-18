@@ -4,9 +4,9 @@
   "jira": "",
   "base": "f2367df566fc9e667c24616ce74e0f89021bb2ac",
   "stage": "build",
-  "step": "tests",
+  "step": "apply",
   "round": null,
-  "commit": "c8cd3e027ba19c4762c9ca8e6c76b2727ec4cff4",
+  "commit": "d6140c93f22ac66c123a0503c5e7dbb0d410d26f",
   "budget": {
     "added": 220,
     "newFiles": 1,
@@ -26,6 +26,12 @@
       "step": "tests",
       "round": null,
       "commit": "c8cd3e027ba19c4762c9ca8e6c76b2727ec4cff4"
+    },
+    {
+      "stage": "build",
+      "step": "apply",
+      "round": null,
+      "commit": "d6140c93f22ac66c123a0503c5e7dbb0d410d26f"
     }
   ]
 }

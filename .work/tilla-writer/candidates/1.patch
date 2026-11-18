@@ -1,0 +1,239 @@
+diff --git a/build.zig b/build.zig
+index 42faf11..cc5ffa7 100644
+--- a/build.zig
++++ b/build.zig
+@@ -38,6 +38,23 @@ pub fn build(b: *std.Build) void {
+ 
+     const server_mod = module(b, "src/server.zig", target, optimize, c_mod, sqlite_dir);
+     const cli_mod = module(b, "src/cli.zig", target, optimize, c_mod, sqlite_dir);
++    // A file belongs to one module, and `server` already holds db.zig and wire.zig, so
++    // `tilla`, which tests import beside `server`, gets its own copies of the two.
++    const copies = b.addWriteFiles();
++    const db = b.createModule(.{
++        .root_source_file = copies.addCopyFile(b.path("src/db.zig"), "db.zig"),
++        .imports = &.{.{ .name = "c", .module = c_mod }},
++    });
++    const wire = b.createModule(.{ .root_source_file = copies.addCopyFile(b.path("src/wire.zig"), "wire.zig") });
++    const tilla = b.createModule(.{
++        .root_source_file = b.path("src/tilla.zig"),
++        .imports = &.{
++            .{ .name = "c", .module = c_mod },
++            .{ .name = "db", .module = db },
++            .{ .name = "wire", .module = wire },
++            .{ .name = "words", .module = words },
++        },
++    });
+ 
+     const server_exe = b.addExecutable(.{ .name = "postilla-server", .root_module = server_mod });
+     const cli_exe = b.addExecutable(.{ .name = "postilla", .root_module = cli_mod });
+@@ -76,6 +93,7 @@ pub fn build(b: *std.Build) void {
+                 .{ .name = "server", .module = server_mod },
+                 .{ .name = "harness", .module = harness },
+                 .{ .name = "words", .module = words },
++                .{ .name = "tilla", .module = tilla },
+             },
+         }) });
+         if (coverage) {
+diff --git a/docs/specification.md b/docs/specification.md
+index fd76d05..6666d32 100644
+--- a/docs/specification.md
++++ b/docs/specification.md
+@@ -419,7 +419,9 @@ A `.tilla` word is only a span, looked up by form; `dict.db` entry ids change be
+ 
+ #### Building and uploading
+ 
+-The CLI writes one `.tilla` per translation ([tilla.md](tilla.md)): the story-level fields, the translation's title, subtitle and sentences, its word spans by the word rule in tilla.md, `words`, `band_words`, and, for a narrated translation, `audio_ms`, `opus_sha256`, `opus_size` and the sentence times. The sha256 is taken of the `.tilla` before gzip, so an unchanged translation keeps its sha256, its key and its cursor whatever the gzip library or level does; the gzip needs no fixed settings.
++The CLI writes one `.tilla` per translation with `tilla.build` ([tilla.md](tilla.md)): the story-level fields, the translation's title, subtitle and sentences, its word spans by the word rule in tilla.md, `words`, `band_words`, and, for a narrated translation, `audio_ms`, `opus_sha256`, `opus_size` and the sentence times. The sha256 is taken of the `.tilla` before gzip, so an unchanged translation keeps its sha256, its key and its cursor whatever the gzip library or level does; the gzip needs no fixed settings.
++
++For `band_words`, each key `words.lookupKeys` gives is tried against `form`, then against `form_norm`; the first key that finds a row decides the word's band.
+ 
+ It uploads every translation's `.tilla.gz`, `.opus` and `.flac` to R2 under the keys in [Files in R2](#files-in-r2). Keys are content-addressed, so uploading a file that is already there writes the same bytes again. Last, after every file is in R2, it sends `POST /stories` with every translation's `lang` and `sha256`, and the server takes the cursors. A 409 for a missing published translation means the folder lacks a language the story was published in: add it back.
+ 
+diff --git a/docs/tilla.md b/docs/tilla.md
+index 9e4b89c..ed9461a 100644
+--- a/docs/tilla.md
++++ b/docs/tilla.md
+@@ -1,6 +1,6 @@
+ # `.tilla` format
+ 
+-One `.tilla` holds one translation of one story: its header, then its paragraphs. This repo's CLI (`postilla publish`) is the only writer; the learner app is the reader. The file is stored gzipped as `stories/<id>/<lang>/<sha256>.tilla.gz` in the public R2 bucket, where `sha256` is the hash of the `.tilla` before gzip (see [Files in R2](specification.md#files-in-r2)). The same `.tilla` always has the same sha256, whatever gzip library or level wrote the `.gz`, so an edit that leaves a translation's content unchanged leaves its key and cursor alone, and no app downloads it again. A reader checks the sha256 after gunzip. Machine-readable layout: [formats/tilla.ksy](formats/tilla.ksy).
++One `.tilla` holds one translation of one story: its header, then its paragraphs. This repo's CLI (`postilla publish`, through `tilla.build` in `src/tilla.zig`) is the only writer; the learner app is the reader. The file is stored gzipped as `stories/<id>/<lang>/<sha256>.tilla.gz` in the public R2 bucket, where `sha256` is the hash of the `.tilla` before gzip (see [Files in R2](specification.md#files-in-r2)). The same `.tilla` always has the same sha256, whatever gzip library or level wrote the `.gz`, so an edit that leaves a translation's content unchanged leaves its key and cursor alone, and no app downloads it again. A reader checks the sha256 after gunzip. Machine-readable layout: [formats/tilla.ksy](formats/tilla.ksy).
+ 
+ Status: **draft**, recreated from what the backend docs recorded after the original TILLA.md was lost.
+ 
+@@ -123,6 +123,8 @@ A reader rejects a file that breaks any of these, and keeps what it already had:
+ 7. The sum of all `word_count`s is `words`. When `lang` is `it`, the four `band_words` add up to `words`; when it isn't, they are all 0.
+ 8. Narration: `audio_ms`, `opus_size` and `opus_sha256` are all zero exactly when every `start_ms` and `end_ms` is 0. With narration, every sentence has `start_ms <= end_ms <= audio_ms`, and each sentence starts at or after the previous one's `start_ms`.
+ 
++`tilla.build` refuses, before writing anything, a translation with an empty title, subtitle, paragraph list, paragraph or sentence, a sentence over 65 535 bytes (a span can't reach past it), more than 65 535 words, or a narration without exactly one time pair per sentence or whose times break rule 8.
++
+ ## Audio
+ 
+ The `.opus` is Ogg Opus, 16 kbps, mono, encoded once from the narration's PCM; sentence times are in milliseconds from the start of the decoded audio. A reader checks a downloaded `.opus` against `opus_size` and `opus_sha256`.
+diff --git a/src/tilla.zig b/src/tilla.zig
+new file mode 100644
+index 0000000..4980686
+--- /dev/null
++++ b/src/tilla.zig
+@@ -0,0 +1,161 @@
++//! The `.tilla` writer (tilla.md): one translation of a story in, its `.tilla` bytes,
++//! their gzip and the sha256 of the `.tilla` out. `postilla publish` calls it once per
++//! translation.
++
++const std = @import("std");
++const c = @import("c");
++const words = @import("words");
++const db = @import("db");
++const wire = @import("wire");
++
++/// One translation and the story-level fields every translation repeats.
++pub const Input = struct {
++    id: wire.StoryId = .{},
++    lang: wire.Lang = .{},
++    original: wire.Lang = .{},
++    title: []const u8 = "",
++    subtitle: []const u8 = "",
++    level: u8 = 0,
++    genre: []const u8 = "",
++    tags: []const []const u8 = &.{},
++    work: []const u8 = "",
++    part: u16 = 0,
++    author: []const u8 = "",
++    adapted: bool = false,
++    license: []const u8 = "",
++    /// Paragraphs of sentences, in reading order.
++    paragraphs: []const []const []const u8 = &.{},
++    /// All zero without narration; otherwise one time pair per sentence, in order.
++    narration: struct {
++        audio_ms: u32 = 0,
++        opus_sha256: [32]u8 = @splat(0),
++        opus_size: u32 = 0,
++        times: []const struct { start_ms: u32 = 0, end_ms: u32 = 0 } = &.{},
++    } = .{},
++};
++
++pub const Built = struct {
++    tilla: []const u8 = "",
++    gz: []const u8 = "",
++    /// Of `tilla`, before gzip.
++    sha256: [32]u8 = @splat(0),
++};
++
++/// Builds `in`'s `.tilla` into `arena`. An Italian translation's `band_words` come from
++/// the `dict.db` at `dict_path`; no other language opens it. Input that would break a
++/// reader rule is refused before anything is written.
++pub fn build(arena: std.mem.Allocator, in: Input, dict_path: [:0]const u8) !Built {
++    const max = std.math.maxInt(u16);
++    const n = in.narration;
++    const silent = n.audio_ms == 0 and n.opus_size == 0 and std.mem.allEqual(u8, &n.opus_sha256, 0);
++    // Reader rule 7 asks band_words of every `it` file.
++    const italian = std.mem.eql(u8, in.lang.text(), "it");
++    if (in.title.len == 0 or in.subtitle.len == 0 or in.paragraphs.len == 0) return error.Empty;
++
++    var dict: db.Db = .{};
++    defer dict.close();
++    var lookup: db.Stmt = .{ .db = dict };
++    defer _ = c.sqlite3_finalize(lookup.handle);
++    if (italian) {
++        dict = try db.open(dict_path);
++        // A key matches `form`, or `form_norm` when no `form` does; no row, no lemma.
++        lookup = try dict.prepare(
++            \\SELECT coalesce(min(nullif(entry.band, 0)), 0) FROM form JOIN entry ON entry.id = form.entry_id
++            \\WHERE form.form = ?1 OR (form.form_norm = ?1 AND NOT EXISTS (SELECT 1 FROM form WHERE form = ?1))
++            \\HAVING count(*) > 0
++        );
++    }
++    const spans = try arena.alloc(words.Span, max);
++    const key_buf = try arena.alloc(u8, 2 * max);
++
++    // The fixed header fields take 96 bytes.
++    var size: usize = 96 + wire.strSize(in.title) + wire.strSize(in.subtitle) + wire.strSize(in.genre) +
++        wire.strSize(in.work) + wire.strSize(in.author) + wire.strSize(in.license);
++    for (in.tags) |tag| size += wire.strSize(tag);
++    var total: usize = 0;
++    var bands: [4]u16 = @splat(0);
++    var sentences: usize = 0;
++    for (in.paragraphs) |p| {
++        if (p.len == 0) return error.Empty;
++        size += 2;
++        for (p) |text| {
++            if (text.len == 0) return error.Empty;
++            if (text.len > max) return error.SentenceTooLong;
++            const ws = words.split(text, spans);
++            total += ws.len;
++            if (total > max) return error.TooManyWords;
++            size += wire.strSize(text) + 2 + 4 * ws.len + 8;
++            sentences += 1;
++            if (italian) for (ws) |w| {
++                var keys: [4][]const u8 = undefined;
++                const band = for (words.lookupKeys(text[w.start..w.end], key_buf, &keys)) |key| {
++                    _ = c.sqlite3_reset(lookup.handle);
++                    _ = c.sqlite3_bind_text(lookup.handle, 1, key.ptr, @intCast(key.len), null);
++                    if (try lookup.step()) break c.sqlite3_column_int(lookup.handle, 0);
++                } else 0;
++                bands[@intCast(band)] += 1;
++            };
++        }
++    }
++
++    // Reader rule 8.
++    if (n.times.len != if (silent) 0 else sentences) return error.BadNarration;
++    var prev_start: u32 = 0;
++    var untimed = true;
++    for (n.times) |t| {
++        if (t.start_ms < prev_start or t.start_ms > t.end_ms or t.end_ms > n.audio_ms) return error.BadNarration;
++        untimed = untimed and t.end_ms == 0;
++        prev_start = t.start_ms;
++    }
++    if (untimed != silent) return error.BadNarration;
++
++    var w: wire.Writer = .{ .buf = try arena.alloc(u8, size) };
++    w.bytes("TILLA");
++    w.int(u8, wire.version);
++    w.bytes(&in.id.bytes);
++    w.bytes(&in.lang.bytes);
++    w.bytes(&in.original.bytes);
++    w.str(in.title);
++    w.str(in.subtitle);
++    w.int(u8, in.level);
++    w.str(in.genre);
++    w.int(u16, @intCast(in.tags.len));
++    for (in.tags) |tag| w.str(tag);
++    w.str(in.work);
++    w.int(u16, in.part);
++    w.str(in.author);
++    w.int(u8, @intFromBool(in.adapted));
++    w.str(in.license);
++    w.int(u16, @intCast(total));
++    for (bands) |b| w.int(u16, b);
++    w.int(u32, n.audio_ms);
++    w.bytes(&n.opus_sha256);
++    w.int(u32, n.opus_size);
++    w.int(u16, @intCast(in.paragraphs.len));
++    var i: usize = 0;
++    for (in.paragraphs) |p| {
++        w.int(u16, @intCast(p.len));
++        for (p) |text| {
++            w.str(text);
++            const ws = words.split(text, spans);
++            w.int(u16, @intCast(ws.len));
++            for (ws) |s| {
++                w.int(u16, s.start);
++                w.int(u16, s.end);
++            }
++            w.int(u32, if (silent) 0 else n.times[i].start_ms);
++            w.int(u32, if (silent) 0 else n.times[i].end_ms);
++            i += 1;
++        }
++    }
++
++    var out: Built = .{ .tilla = w.written() };
++    std.crypto.hash.sha2.Sha256.hash(out.tilla, &out.sha256, .{});
++    var gz: std.Io.Writer.Allocating = try .initCapacity(arena, size);
++    const z = try arena.create(std.compress.flate.Compress);
++    z.* = try .init(&gz.writer, try arena.alloc(u8, std.compress.flate.max_window_len), .gzip, .default);
++    try z.writer.writeAll(out.tilla);
++    try z.finish();
++    out.gz = gz.written();
++    return out;
++}
