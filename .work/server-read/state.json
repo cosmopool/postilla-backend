@@ -3,17 +3,29 @@
   "branch": "work/server-read",
   "jira": "",
   "base": "f62dd56c983ff2e0aaf4f647adfa779ff52e43f3",
-  "stage": "bench",
-  "step": "done",
+  "stage": "minimize",
+  "step": "auto",
   "round": null,
-  "commit": "a8f46e15ccaf99a2c4a65442fa6d111685dc89ad",
+  "commit": "55723bcc4f7fbd312dcdf864b0204140557d8c31",
   "budget": {
     "added": 350,
     "newFiles": 1,
     "newSymbols": 2
   },
   "api": "settled",
-  "pending": null,
+  "pending": {
+    "kind": "deletion-queue",
+    "queue": [
+      {
+        "file": "src/server.zig",
+        "line": 217,
+        "construct": "std.fmt.bufPrint(&message, \"lang: duplicate id '{s}'\\n\", .{id}) catch unreachable  (also :221 for 'unknown id')",
+        "class": "defensive",
+        "reason": "Pure formatting into an 8256-byte stack buffer sized above the 8 KiB head buffer plus the format text, so NoSpaceLeft cannot happen. It guards no I/O boundary. It is an assertion, not handling, and the only alternative (`try`) is the same size.",
+        "riskIfWrong": "None if kept. If someone later grows in_buf past 8192 without growing `message`, `unreachable` becomes a panic in safe builds."
+      }
+    ]
+  },
   "history": [
     {
       "stage": "open",
@@ -56,6 +68,12 @@
       "step": "done",
       "round": null,
       "commit": "a8f46e15ccaf99a2c4a65442fa6d111685dc89ad"
+    },
+    {
+      "stage": "minimize",
+      "step": "auto",
+      "round": null,
+      "commit": "55723bcc4f7fbd312dcdf864b0204140557d8c31"
     }
   ],
   "verify": {

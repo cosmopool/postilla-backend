@@ -1,0 +1,24 @@
+1/2 server-read_repro_r1_2.test.AC-10: a path that only starts with a known path before '&' gets 404 not found...OK
+2/2 server-read_repro_r1_2.test.AC-6, AC-9: a second '?' inside the query is part of a value, not a separator...OK
+All 2 tests passed.
+1/12 server_read.test.AC-1, AC-2, AC-3, AC-4, AC-11: a fresh database serves the seed rows of the four lists...OK
+2/12 server_read.test.AC-11: startup creates the schema and triggers and stamps user_version 1...OK
+3/12 server_read.test.AC-3, AC-11: rows added or renamed by hand show up in the lists and survive a restart...OK
+4/12 server_read.test.AC-12: triggers refuse deleting a language or author row or changing its id...[db] (warn): language ids are permanent
+[db] (warn): language ids are permanent
+[db] (warn): author ids are permanent
+[db] (warn): author ids are permanent
+OK
+5/12 server_read.test.AC-5, AC-6, AC-7: the feed returns the listed languages' rows above since, ascending by cursor...OK
+6/12 server_read.test.AC-8: a bad since gets 400 with the matching reason...OK
+7/12 server_read.test.AC-9: a bad lang gets 400 with the matching reason...OK
+8/12 server_read.test.AC-10: any other path, or a method other than GET, gets 404 not found...OK
+9/12 server_read.test.AC-F1: a malformed or oversized request head gets 400 bad request head and the connection closes...OK
+10/12 server_read.test.AC-F2: a connection that sends nothing for idle_timeout_ms is closed...OK
+11/12 server_read.test.AC-F3: a SQLite error answers 500 with no body and the connection keeps serving...[db] (warn): no such table: story
+[db] (warn): no such table: tag
+OK
+12/12 server_read.test.AC-F4: startup fails on a newer schema or a database path in a missing directory...[db] (warn): CHECK constraint failed: user_version <= 1
+[db] (warn): unable to open database file
+OK
+All 12 tests passed.
