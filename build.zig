@@ -60,25 +60,29 @@ pub fn build(b: *std.Build) void {
     const opusenc_dir = (b.lazyDependency("opusenc", .{}) orelse return).path("");
     const flac_dir = (b.lazyDependency("flac", .{}) orelse return).path("");
     const audio_c = b.addTranslateC(.{ .root_source_file = b.path("src/audio.h"), .target = target, .optimize = optimize });
+    // The C code is one static library, compiled once, not once per test root that imports
+    // `audio` (~180 files each, which also ran out of file descriptors on the cache).
+    const codecs = b.addLibrary(.{ .name = "codecs", .linkage = .static, .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }) });
     const audio = b.createModule(.{ .root_source_file = b.path("src/audio.zig"), .target = target, .optimize = optimize, .link_libc = true });
     for ([_]std.Build.LazyPath{ opus_dir.path(b, "include"), opusenc_dir.path(b, "include"), flac_dir.path(b, "include") }) |dir| {
         audio_c.addIncludePath(dir);
-        audio.addIncludePath(dir);
+        codecs.root_module.addIncludePath(dir);
     }
-    for ([_][]const u8{ "celt", "silk", "silk/float" }) |dir| audio.addIncludePath(opus_dir.path(b, dir));
-    audio.addIncludePath(flac_dir.path(b, "src/libFLAC/include"));
+    for ([_][]const u8{ "celt", "silk", "silk/float" }) |dir| codecs.root_module.addIncludePath(opus_dir.path(b, dir));
+    codecs.root_module.addIncludePath(flac_dir.path(b, "src/libFLAC/include"));
     audio.addImport("c", audio_c.createModule());
-    audio.addCSourceFiles(.{
+    audio.linkLibrary(codecs);
+    codecs.root_module.addCSourceFiles(.{
         .root = opus_dir,
         .files = &opus_files,
         .flags = &.{ "-DOPUS_BUILD", "-DVAR_ARRAYS", "-DHAVE_LRINTF", "-DHAVE_LRINT", "-DPACKAGE_VERSION=\"1.6.1\"" },
     });
-    audio.addCSourceFiles(.{
+    codecs.root_module.addCSourceFiles(.{
         .root = opusenc_dir.path(b, "src"),
         .files = &.{ "ogg_packer.c", "opus_header.c", "opusenc.c", "picture.c", "resample.c", "unicode_support.c" },
         .flags = &.{ "-DOUTSIDE_SPEEX", "-DRANDOM_PREFIX=libopusenc", "-DPACKAGE_NAME=\"libopusenc\"", "-DPACKAGE_VERSION=\"0.3\"" },
     });
-    audio.addCSourceFiles(.{
+    codecs.root_module.addCSourceFiles(.{
         .root = flac_dir.path(b, "src/libFLAC"),
         .files = &.{
             "bitmath.c", "bitreader.c", "bitwriter.c",      "cpu.c",            "crc.c",
