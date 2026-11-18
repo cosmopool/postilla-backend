@@ -4,9 +4,9 @@
   "jira": "",
   "base": "aacef22ecee1528252e039b27342be19877fcdc7",
   "stage": "verify",
-  "step": "round-1",
-  "round": 1,
-  "commit": "75e2288d487f16637f6a553f8135d1e61c1c86ec",
+  "step": "round-2",
+  "round": 2,
+  "commit": "114190222b8c0a88135a9c45a4c328c6ff0ae896",
   "budget": {
     "added": 450,
     "newFiles": 0,
@@ -50,11 +50,22 @@
       "step": "round-1",
       "round": 1,
       "commit": "75e2288d487f16637f6a553f8135d1e61c1c86ec"
+    },
+    {
+      "stage": "verify",
+      "step": "round-2",
+      "round": 2,
+      "commit": "114190222b8c0a88135a9c45a4c328c6ff0ae896"
     }
   ],
   "verify": {
-    "round": 1,
-    "newCritical": 2,
-    "seen": []
+    "round": 2,
+    "newCritical": 0,
+    "seen": [
+      "src/cli.zig: An empty POSTILLA_R2_ENDPOINT crashes the CLI instead of using the default",
+      "src/cli.zig: First publish fails with dict: FileNotFound when the dict cache directory doesn't exist",
+      "src/cli.zig: Empty or scheme-less POSTILLA_R2_ENDPOINT crashes publish instead of failing with a message",
+      "src/cli.zig: Publish fails with 'dict: NotDir' when the dict cache directory is a symlink"
+    ]
   }
 }

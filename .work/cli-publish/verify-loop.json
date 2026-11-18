@@ -1,1 +1,1 @@
-{"round":1,"newCritical":2,"seen":[]}
+{"round":2,"newCritical":0,"seen":["src/cli.zig: An empty POSTILLA_R2_ENDPOINT crashes the CLI instead of using the default","src/cli.zig: First publish fails with dict: FileNotFound when the dict cache directory doesn't exist","src/cli.zig: Empty or scheme-less POSTILLA_R2_ENDPOINT crashes publish instead of failing with a message","src/cli.zig: Publish fails with 'dict: NotDir' when the dict cache directory is a symlink"]}
