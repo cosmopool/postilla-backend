@@ -1,0 +1,350 @@
+diff --git a/docs/formats/feed.ksy b/docs/formats/feed.ksy
+index fe62fad..5f60e2c 100644
+--- a/docs/formats/feed.ksy
++++ b/docs/formats/feed.ksy
+@@ -6,8 +6,8 @@ meta:
+     - postilla_enums
+ doc: |
+   Translations in the requested languages published, corrected or removed after the
+-  requested cursor, ascending by cursor. The last record's `cursor` is the value the app
+-  sends next time. Removed translations are listed like any other, `since=0` included.
++  requested cursor, ascending by cursor. Which cursor the app stores and sends next time:
++  app-handoff.md §2. Removed translations are listed like any other, `since=0` included.
+   See specification.md, `GET /stories`.
+ doc-ref: ../specification.md
+ seq:
+diff --git a/docs/openapi.yaml b/docs/openapi.yaml
+index 2793dc2..c564f0b 100644
+--- a/docs/openapi.yaml
++++ b/docs/openapi.yaml
+@@ -40,9 +40,10 @@ info:
+     and the field (`lang: unknown id 'fr'`, `story removed`). A 409 for a published
+     translation missing from a `POST /stories` body names the language
+     (`pt-BR: published, missing from body`). A 401 has an empty body. A 500 (SQLite
+-    error) has no body.
++    error) has no body. A malformed request head, or one over 8 KiB, gets a 400
++    (`bad request head`) and the connection closes.
+ 
+-    Any path or method not listed here gets a 404.
++    Any path or method not listed here gets a 404 (`not found`), `HEAD` included.
+     The backend sends no CORS headers.
+ servers:
+   - url: http://127.0.0.1:8080
+@@ -126,7 +127,7 @@ paths:
+                 $ref: "#/components/schemas/Binary"
+         "400":
+           $ref: "#/components/responses/BadRequest"
+-          description: "`since` isn't a decimal `u32`; or `lang` is missing, empty or malformed, has a duplicate, or names an id not in `language`"
++          description: "`since` isn't 1 to 10 decimal digits up to 4294967295 (`since: not a u32`) or is repeated (`since: repeated`); or `lang` is missing (`lang: missing`), repeated (`lang: repeated`), has an empty item (`lang: empty id`), more than 4 ids (`lang: more than 4 ids`), a duplicate (`lang: duplicate id 'it'`) or an id not in `language` (`lang: unknown id 'fr'`)"
+         "500":
+           $ref: "#/components/responses/DatabaseError"
+ 
+diff --git a/docs/specification.md b/docs/specification.md
+index dec8f0b..6fe5f14 100644
+--- a/docs/specification.md
++++ b/docs/specification.md
+@@ -160,13 +160,13 @@ The authoring client is the `postilla` CLI, so the backend sends no CORS headers
+ 
+ ### Error bodies
+ 
+-Every 4xx except 401 carries a one-line English reason as `text/plain`, naming the rule and the field: `lang: unknown id 'fr'`, `story removed`. A 409 for a published translation missing from a `POST /stories` body names the language (`pt-BR: published, missing from body`). The CLI prints the line as is. A 401 stays empty, so it reveals nothing before the token is checked. A 500 carries no body.
++Every 4xx except 401 carries a one-line English reason as `text/plain`, naming the rule and the field: `lang: unknown id 'fr'`, `story removed`. A 409 for a published translation missing from a `POST /stories` body names the language (`pt-BR: published, missing from body`). The CLI prints the line as is. A 401 stays empty, so it reveals nothing before the token is checked. A 500 carries no body. A malformed request head, or one over 8 KiB, gets a 400 `bad request head` and the connection closes; any other path or method (`HEAD` included) gets a 404 `not found`.
+ 
+ ### `GET /stories?since=<cursor>&lang=<ids>`
+ 
+-`since` is a decimal `u32`. When it is missing it counts as 0, which returns every translation in the listed languages. Any other value gets a 400.
++`since` is a decimal `u32`: 1 to 10 ASCII digits, leading zeros allowed, up to 4294967295. When it is missing it counts as 0, which returns every translation in the listed languages. Any other value (empty, signed, spaces) gets a 400 `since: not a u32`, and a repeated `since` a 400 `since: repeated`.
+ 
+-`lang` is required: 1 to 4 comma-separated language ids (`it,pt-BR`), each in `language`, with no duplicates and no empty items. A missing, empty or malformed `lang`, or an id not in `language`, gets a 400.
++`lang` is required: 1 to 4 comma-separated language ids (`it,pt-BR`), each in `language`, with no duplicates and no empty items. Each broken rule gets a 400 naming it: `lang: missing`, `lang: repeated`, `lang: empty id`, `lang: more than 4 ids`, `lang: duplicate id 'it'`, `lang: unknown id 'fr'`. Other query parameters are ignored.
+ 
+ The response is `200`, `Content-Type: application/octet-stream`:
+ 
+@@ -477,7 +477,7 @@ BEGIN SELECT RAISE(ABORT, 'language ids are permanent'); END;
+ 
+ A `POST /stories` runs in one `BEGIN IMMEDIATE` transaction: read the story's current rows (a removed story or a missing published translation stops it here), then, for each translation whose sha256 differs or whose row is new, read `coalesce(max(cursor), 0) + 1` and upsert. A removal runs the same way, setting `change` to 2 and a new cursor on every row of the story. The write lock keeps two concurrent publishes from taking the same cursor.
+ 
+-Startup creates the schema and inserts the initial rows with `INSERT OR IGNORE`, so a fresh `postilla.db` works with no manual step. Later rows are added by hand with SQL.
++Startup creates the schema and inserts the initial rows with `INSERT OR IGNORE`, so a fresh `postilla.db` works with no manual step, and a row renamed by hand keeps its new name. Later rows are added by hand with SQL. Startup also sets `PRAGMA user_version = 1`, the schema version, and refuses to start (logged, exit 1) on a database whose `user_version` is above 1.
+ 
+ | Table | Initial rows |
+ |---|---|
+@@ -522,7 +522,7 @@ Everything comes from env, read and checked once at startup. A missing required
+ 
+ - A self-contained Zig project (Zig 0.17), with its own `build.zig` and `build.zig.zon`. `zig build` makes both executables into `zig-out/bin/`, and they share source files in `src/`: `server.zig` and `cli.zig` are the two entry points, `wire.zig` the binary encoding every body shares, `db.zig` the SQLite wrapper.
+ - SQLite is the amalgamation (3.53.2), a `build.zig.zon` dependency by URL and hash, compiled in multi-thread mode (`SQLITE_THREADSAFE=2`): every thread opens its own connection, and no connection is shared. Both executables link it: the server for `postilla.db`, the CLI to read `dict.db`.
+-- **`postilla-server`:** every connection runs as its own concurrent task on `std.Io.Threaded`, so one OS thread per connection, on `std.http.Server`. It closes a connection after a response when the request isn't keep-alive. Each connection opens its own SQLite connection; the database runs in WAL mode (`synchronous = NORMAL`) with a 5 s busy timeout, so readers never wait on a publish and a second writer waits for the first instead of failing. It makes no outbound calls.
++- **`postilla-server`:** every connection runs as its own concurrent task on `std.Io.Threaded`, so one OS thread per connection, on `std.http.Server`. It closes a connection after a response when the request isn't keep-alive, after a `400 bad request head`, and when the client sends nothing for 30 s. Each connection opens its own SQLite connection; the database runs in WAL mode (`synchronous = NORMAL`) with a 5 s busy timeout, so readers never wait on a publish and a second writer waits for the first instead of failing. It makes no outbound calls.
+ - **`words`:** `src/words.zig`, the word rule, the normalization and the lookup chain ([tilla.md, Words](tilla.md#words)), with no dependencies. `build.zig` exports it as a module, so postilla-content imports the same code through a `build.zig.zon` dependency on this repo; SQLite is a lazy dependency, so importing `words` doesn't fetch it. `zig build dart` writes the app's normalization table (`zig-out/dart/words_norm.dart`) from the same source.
+ - **`postilla`:** one process per command, single-threaded. It vendors libopus, libopusenc and libFLAC, makes HTTPS client calls to OpenCode, Speechify, R2 and the server, and signs its R2 uploads and downloads with SigV4.
+ 
+diff --git a/src/db.zig b/src/db.zig
+index ec96898..9a67c02 100644
+--- a/src/db.zig
++++ b/src/db.zig
+@@ -42,7 +42,9 @@ pub fn open(path: [:0]const u8) error{Sqlite}!Db {
+     return d;
+ }
+ 
+-fn fail(d: Db) error{Sqlite} {
+-    log.err("{s}", .{c.sqlite3_errmsg(d.handle)});
++/// Logs the connection's last SQLite error. A warning, not an error: a failed statement
++/// is answered (a 500, a refused startup), and tests make SQLite fail on purpose.
++pub fn fail(d: Db) error{Sqlite} {
++    log.warn("{s}", .{c.sqlite3_errmsg(d.handle)});
+     return error.Sqlite;
+ }
+diff --git a/src/server.zig b/src/server.zig
+index 89d12b6..593df6a 100644
+--- a/src/server.zig
++++ b/src/server.zig
+@@ -4,7 +4,10 @@
+ 
+ const std = @import("std");
+ const Io = std.Io;
+-const db = @import("db.zig");
++const c = @import("c");
++pub const db = @import("db.zig");
++const Request = std.http.Server.Request;
++const Stmt = *c.sqlite3_stmt;
+ 
+ const log = std.log.scoped(.server);
+ 
+@@ -13,6 +16,8 @@ pub const Config = struct {
+     bind: []const u8 = "127.0.0.1",
+     db_path: [:0]const u8 = "./postilla.db",
+     author_token: []const u8 = "",
++    /// A connection that sends no bytes for this long is closed.
++    idle_timeout_ms: i64 = 30_000,
+ };
+ 
+ pub fn main(init: std.process.Init) !void {
+@@ -47,11 +52,12 @@ fn readConfig(arena: std.mem.Allocator, env: *const std.process.Environ.Map) !Co
+     return config;
+ }
+ 
+-/// Opens the database once to check it (and, in slice 1, create the schema), then
+-/// binds. Port 0 picks a free port; the bound one is `listener.socket.address`.
++/// Opens the database once to create the schema and the seed rows, then binds. Port 0
++/// picks a free port; the bound one is `listener.socket.address`.
+ pub fn listen(io: Io, config: *const Config) !Io.net.Server {
+     var d = try db.open(config.db_path);
+-    d.close();
++    defer d.close();
++    try d.exec(schema);
+     const address = try Io.net.IpAddress.parse(config.bind, config.port);
+     return address.listen(io, .{ .reuse_address = true });
+ }
+@@ -76,21 +82,203 @@ pub fn serve(io: Io, listener: *Io.net.Server, config: *const Config) Io.Cancela
+ }
+ 
+ fn connection(io: Io, stream: Io.net.Stream, config: *const Config) Io.Cancelable!void {
+-    _ = config;
+     defer stream.close(io);
++    var d = db.open(config.db_path) catch return;
++    defer d.close();
+     var in_buf: [8192]u8 = undefined;
+     var out_buf: [16384]u8 = undefined;
+     var in = stream.reader(io, &in_buf);
+     var out = stream.writer(io, &out_buf);
+     var http: std.http.Server = .init(&in.interface, &out.interface);
+     while (true) {
+-        var request = http.receiveHead() catch return;
+-        const keep_alive = request.head.keep_alive;
+-        request.respond("not found\n", .{
+-            .status = .not_found,
+-            .keep_alive = keep_alive,
+-            .extra_headers = &.{.{ .name = "content-type", .value = "text/plain" }},
+-        }) catch return;
+-        if (!keep_alive) return;
++        if (in.interface.bufferedLen() == 0) {
++            // The next request's first bytes, waited for at most `idle_timeout_ms`.
++            var data: [1][]u8 = .{&in_buf};
++            const idle: Io.Timeout = .{ .duration = .{ .raw = .fromMilliseconds(config.idle_timeout_ms), .clock = .awake } };
++            const read = io.operateTimeout(.{ .net_read = .{ .socket_handle = stream.socket.handle, .data = &data } }, idle) catch return;
++            const n = (read.net_read catch return).data_len;
++            if (n == 0) return;
++            in.interface.seek = 0;
++            in.interface.end = n;
++        }
++        var request = http.receiveHead() catch {
++            out.interface.writeAll("HTTP/1.1 400 Bad Request\r\nconnection: close\r\ncontent-type: text/plain\r\ncontent-length: 17\r\n\r\nbad request head\n") catch {};
++            out.interface.flush() catch {};
++            return;
++        };
++        route(d, &request) catch |err| switch (err) {
++            error.Sqlite, error.OutOfMemory => request.respond("", .{ .status = .internal_server_error }) catch return,
++            else => return,
++        };
++        if (!request.head.keep_alive) return;
++    }
++}
++
++fn route(d: db.Db, request: *Request) !void {
++    const target = request.head.target;
++    const path_end = std.mem.findScalar(u8, target, '?') orelse target.len;
++    const path = if (request.head.method == .GET) target[0..path_end] else "";
++    if (std.mem.eql(u8, path, "/stories")) return stories(d, request, target[@min(path_end + 1, target.len)..]);
++    const named = "SELECT id, it, pt_br, en, 7 + sum(16 + octet_length(id) + octet_length(it) + octet_length(pt_br) + octet_length(en)) OVER () FROM ";
++    const magic: *const [4]u8, const layout: []const u8, const sql: [:0]const u8 =
++        if (std.mem.eql(u8, path, "/genres")) .{ "GNRS", "ssss", named ++ "genre ORDER BY id" } //
++        else if (std.mem.eql(u8, path, "/tags")) .{ "TAGS", "ssss", named ++ "tag ORDER BY id" } //
++        else if (std.mem.eql(u8, path, "/authors")) .{ "AUTH", "ss", "SELECT id, name, 7 + sum(8 + octet_length(id) + octet_length(name)) OVER () FROM author ORDER BY id" } //
++        else if (std.mem.eql(u8, path, "/languages")) .{ "LANG", "ssbb", "SELECT id, name, target, translate, 7 + sum(10 + octet_length(id) + octet_length(name)) OVER () FROM language ORDER BY id" } //
++        else return reply(request, .not_found, "text/plain", "not found\n");
++    const s = try prepare(d, sql);
++    defer _ = c.sqlite3_finalize(s);
++    try rows(request, s, magic, u16, layout);
++}
++
++/// `GET /stories?since=&lang=`: a bad `since` or `lang` gets 400 with the rule it breaks.
++fn stories(d: db.Db, request: *Request, query: []const u8) !void {
++    var since: ?[]const u8 = null;
++    var lang: ?[]const u8 = null;
++    var params = std.mem.splitScalar(u8, query, '&');
++    while (params.next()) |param| {
++        if (std.mem.startsWith(u8, param, "since=")) {
++            if (since != null) return reply(request, .bad_request, "text/plain", "since: repeated\n");
++            since = param["since=".len..];
++        } else if (std.mem.startsWith(u8, param, "lang=")) {
++            if (lang != null) return reply(request, .bad_request, "text/plain", "lang: repeated\n");
++            lang = param["lang=".len..];
++        }
++    }
++    const digits = since orelse "0";
++    if (digits.len > 10 or std.mem.findNone(u8, digits, "0123456789") != null) return reply(request, .bad_request, "text/plain", "since: not a u32\n");
++    const cursor = std.fmt.parseInt(u32, digits, 10) catch return reply(request, .bad_request, "text/plain", "since: not a u32\n");
++
++    var ids: [4][]const u8 = undefined;
++    var n: usize = 0;
++    var reason: [8192 + 64]u8 = undefined; // an id is at most the 8 KiB head
++    var items = std.mem.splitScalar(u8, lang orelse return reply(request, .bad_request, "text/plain", "lang: missing\n"), ',');
++    while (items.next()) |id| : (n += 1) {
++        if (id.len == 0) return reply(request, .bad_request, "text/plain", "lang: empty id\n");
++        if (n == ids.len) return reply(request, .bad_request, "text/plain", "lang: more than 4 ids\n");
++        for (ids[0..n]) |seen| if (std.mem.eql(u8, seen, id)) return reply(request, .bad_request, "text/plain", try std.fmt.bufPrint(&reason, "lang: duplicate id '{s}'\n", .{id}));
++        ids[n] = id;
++    }
++
++    const unknown = try prepare(d, "SELECT column1 FROM (VALUES (?1), (?2), (?3), (?4)) WHERE column1 NOT IN (SELECT id FROM language)");
++    defer _ = c.sqlite3_finalize(unknown);
++    const s = try prepare(d,
++        \\SELECT id, unhex(substr(hex(lang) || '0000000000000000', 1, 16)), change,
++        \\  iif(change = 2, zeroblob(32), sha256), cursor, 9 + 61 * count(*) OVER ()
++        \\FROM story WHERE cursor > ?1 AND lang IN (?2, ?3, ?4, ?5) ORDER BY cursor
++    );
++    defer _ = c.sqlite3_finalize(s);
++    // Binding can only fail on a parameter index out of range: these are fixed.
++    _ = c.sqlite3_bind_int64(s, 1, cursor);
++    for (ids[0..n], 1..) |id, i| {
++        _ = c.sqlite3_bind_text(unknown, @intCast(i), id.ptr, @intCast(id.len), null);
++        _ = c.sqlite3_bind_text(s, @intCast(i + 1), id.ptr, @intCast(id.len), null);
++    }
++    if (try step(unknown)) return reply(request, .bad_request, "text/plain", try std.fmt.bufPrint(&reason, "lang: unknown id '{s}'\n", .{column(unknown, 0)}));
++    try rows(request, s, "FEED", u32, "xxbxi");
++}
++
++/// Answers 200 with `magic`, the row count as a `Count`, then each row's columns as
++/// `layout` says: `s` a `str`, `b` a `u8`, `i` a `u32`, `x` the bytes as they are. The
++/// query's next column is the whole body's size, the same on every row.
++fn rows(request: *Request, s: Stmt, magic: *const [4]u8, comptime Count: type, layout: []const u8) !void {
++    var more = try step(s);
++    const buf = try std.heap.c_allocator.alloc(u8, if (more) @intCast(c.sqlite3_column_int64(s, @intCast(layout.len))) else 5 + @sizeOf(Count));
++    defer std.heap.c_allocator.free(buf);
++    var w: Io.Writer = .fixed(buf);
++    try w.writeAll(magic);
++    try w.writeInt(u8, 1, .big);
++    try w.writeInt(Count, 0, .big);
++    var count: Count = 0;
++    while (more) : (more = try step(s)) {
++        count += 1;
++        for (layout, 0..) |kind, i| switch (kind) {
++            's' => {
++                try w.writeInt(u32, @intCast(column(s, i).len), .big);
++                try w.writeAll(column(s, i));
++            },
++            'b' => try w.writeInt(u8, @intCast(c.sqlite3_column_int64(s, @intCast(i))), .big),
++            'i' => try w.writeInt(u32, @intCast(c.sqlite3_column_int64(s, @intCast(i))), .big),
++            else => try w.writeAll(column(s, i)),
++        };
+     }
++    std.mem.writeInt(Count, buf[5..][0..@sizeOf(Count)], count, .big);
++    try reply(request, .ok, "application/octet-stream", w.buffered());
+ }
++
++fn prepare(d: db.Db, sql: [:0]const u8) error{Sqlite}!Stmt {
++    var s: ?Stmt = null;
++    if (c.sqlite3_prepare_v2(d.handle, sql.ptr, @intCast(sql.len + 1), &s, null) != c.SQLITE_OK) return db.fail(d);
++    return s.?;
++}
++
++/// True when a row is ready, false when the statement is done.
++fn step(s: Stmt) error{Sqlite}!bool {
++    return switch (c.sqlite3_step(s)) {
++        c.SQLITE_ROW => true,
++        c.SQLITE_DONE => false,
++        else => db.fail(.{ .handle = c.sqlite3_db_handle(s) }),
++    };
++}
++
++/// The bytes of a BLOB or TEXT column, valid until the next `step`.
++fn column(s: Stmt, i: usize) []const u8 {
++    const p: [*]const u8 = @ptrCast(c.sqlite3_column_blob(s, @intCast(i)) orelse return "");
++    return p[0..@intCast(c.sqlite3_column_bytes(s, @intCast(i)))];
++}
++
++fn reply(request: *Request, status: std.http.Status, content_type: []const u8, body: []const u8) !void {
++    try request.respond(body, .{ .status = status, .extra_headers = &.{.{ .name = "content-type", .value = content_type }} });
++}
++
++/// Run on every startup (specification.md, Database). The temp table refuses a database
++/// whose schema is newer than this server's.
++const schema =
++    \\CREATE TEMP TABLE newer (user_version CHECK (user_version <= 1));
++    \\INSERT INTO newer SELECT user_version FROM pragma_user_version;
++    \\CREATE TABLE IF NOT EXISTS story (
++    \\  id        BLOB NOT NULL,              -- 16 bytes
++    \\  lang      TEXT NOT NULL REFERENCES language(id),
++    \\  sha256    BLOB NOT NULL,              -- 32 bytes, of the .tilla before gzip; kept when removed
++    \\  change    INTEGER NOT NULL,           -- 1 published, 2 removed
++    \\  cursor    INTEGER NOT NULL UNIQUE,
++    \\  PRIMARY KEY (id, lang)
++    \\) WITHOUT ROWID;
++    \\CREATE TABLE IF NOT EXISTS genre (
++    \\  id       TEXT PRIMARY KEY,
++    \\  it       TEXT NOT NULL,
++    \\  pt_br    TEXT NOT NULL,
++    \\  en       TEXT NOT NULL
++    \\) WITHOUT ROWID;
++    \\CREATE TABLE IF NOT EXISTS tag (
++    \\  id       TEXT PRIMARY KEY,
++    \\  it       TEXT NOT NULL,
++    \\  pt_br    TEXT NOT NULL,
++    \\  en       TEXT NOT NULL
++    \\) WITHOUT ROWID;
++    \\CREATE TABLE IF NOT EXISTS author (
++    \\  id       TEXT PRIMARY KEY,
++    \\  name     TEXT NOT NULL
++    \\) WITHOUT ROWID;
++    \\CREATE TRIGGER IF NOT EXISTS author_keep BEFORE DELETE ON author
++    \\BEGIN SELECT RAISE(ABORT, 'author ids are permanent'); END;
++    \\CREATE TRIGGER IF NOT EXISTS author_id_fixed BEFORE UPDATE OF id ON author
++    \\BEGIN SELECT RAISE(ABORT, 'author ids are permanent'); END;
++    \\CREATE TABLE IF NOT EXISTS language (
++    \\  id       TEXT PRIMARY KEY CHECK (length(id) <= 8),
++    \\  name     TEXT NOT NULL,
++    \\  target   INTEGER NOT NULL,   -- 0 or 1
++    \\  translate INTEGER NOT NULL   -- 0 or 1
++    \\) WITHOUT ROWID;
++    \\CREATE TRIGGER IF NOT EXISTS language_keep BEFORE DELETE ON language
++    \\BEGIN SELECT RAISE(ABORT, 'language ids are permanent'); END;
++    \\CREATE TRIGGER IF NOT EXISTS language_id_fixed BEFORE UPDATE OF id ON language
++    \\BEGIN SELECT RAISE(ABORT, 'language ids are permanent'); END;
++    \\INSERT OR IGNORE INTO language VALUES ('it', 'Italiano', 1, 0), ('pt-BR', 'Português brasileiro', 0, 1), ('en', 'English', 0, 0);
++    \\INSERT OR IGNORE INTO genre VALUES ('quotidiano', 'Quotidiano', 'Cotidiano', 'Everyday'),
++    \\  ('famiglia', 'Famiglia', 'Família', 'Family'), ('viaggio', 'Viaggio', 'Viagem', 'Travel'),
++    \\  ('mistero', 'Mistero', 'Mistério', 'Mystery'), ('lettere', 'Lettere', 'Cartas', 'Letters'),
++    \\  ('racconto', 'Racconto', 'Conto', 'Short story'), ('classici', 'Classici', 'Clássicos', 'Classics');
++    \\INSERT OR IGNORE INTO author VALUES ('collodi', 'Carlo Collodi');
++    \\PRAGMA user_version = 1;
++;

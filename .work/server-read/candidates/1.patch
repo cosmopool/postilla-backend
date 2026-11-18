@@ -1,0 +1,420 @@
+diff --git a/docs/formats/feed.ksy b/docs/formats/feed.ksy
+index fe62fad..3905ef3 100644
+--- a/docs/formats/feed.ksy
++++ b/docs/formats/feed.ksy
+@@ -6,8 +6,9 @@ meta:
+     - postilla_enums
+ doc: |
+   Translations in the requested languages published, corrected or removed after the
+-  requested cursor, ascending by cursor. The last record's `cursor` is the value the app
+-  sends next time. Removed translations are listed like any other, `since=0` included.
++  requested cursor, ascending by cursor. Which cursor the app stores and sends next time:
++  app-handoff.md, 2. Syncing. Removed translations are listed like any other, `since=0`
++  included.
+   See specification.md, `GET /stories`.
+ doc-ref: ../specification.md
+ seq:
+diff --git a/docs/openapi.yaml b/docs/openapi.yaml
+index 2793dc2..ddc8d4a 100644
+--- a/docs/openapi.yaml
++++ b/docs/openapi.yaml
+@@ -42,7 +42,10 @@ info:
+     (`pt-BR: published, missing from body`). A 401 has an empty body. A 500 (SQLite
+     error) has no body.
+ 
+-    Any path or method not listed here gets a 404.
++    A malformed request head, or one over 8 KiB, gets a 400 `bad request head` and the
++    connection closes. A connection that sends no request for 30 s is closed.
++
++    Any path or method not listed here gets a 404, `HEAD` included.
+     The backend sends no CORS headers.
+ servers:
+   - url: http://127.0.0.1:8080
+@@ -126,7 +129,7 @@ paths:
+                 $ref: "#/components/schemas/Binary"
+         "400":
+           $ref: "#/components/responses/BadRequest"
+-          description: "`since` isn't a decimal `u32`; or `lang` is missing, empty or malformed, has a duplicate, or names an id not in `language`"
++          description: "`since` isn't 1 to 10 decimal digits of a `u32` (`since: not a u32`) or is repeated (`since: repeated`); `lang` is missing (`lang: missing`), repeated (`lang: repeated`), has an empty item (`lang: empty id`), more than 4 ids (`lang: more than 4 ids`), a duplicate (`lang: duplicate id 'it'`) or an id not in `language` (`lang: unknown id 'fr'`)"
+         "500":
+           $ref: "#/components/responses/DatabaseError"
+ 
+diff --git a/docs/specification.md b/docs/specification.md
+index dec8f0b..5c99cd4 100644
+--- a/docs/specification.md
++++ b/docs/specification.md
+@@ -162,9 +162,11 @@ The authoring client is the `postilla` CLI, so the backend sends no CORS headers
+ 
+ Every 4xx except 401 carries a one-line English reason as `text/plain`, naming the rule and the field: `lang: unknown id 'fr'`, `story removed`. A 409 for a published translation missing from a `POST /stories` body names the language (`pt-BR: published, missing from body`). The CLI prints the line as is. A 401 stays empty, so it reveals nothing before the token is checked. A 500 carries no body.
+ 
++`GET /stories` reasons: `since: not a u32`, `since: repeated`, `lang: missing`, `lang: repeated`, `lang: empty id`, `lang: more than 4 ids`, `lang: duplicate id 'it'`, `lang: unknown id 'fr'`. A malformed request head, or one over 8 KiB, gets `bad request head`; any other path or method, `HEAD` included, gets `not found`.
++
+ ### `GET /stories?since=<cursor>&lang=<ids>`
+ 
+-`since` is a decimal `u32`. When it is missing it counts as 0, which returns every translation in the listed languages. Any other value gets a 400.
++`since` is a decimal `u32`: 1 to 10 ASCII digits, leading zeros allowed. When it is missing it counts as 0, which returns every translation in the listed languages. Any other value (empty, signed, or above 4294967295) gets a 400. Unknown query parameters are ignored; a repeated `since` or `lang` gets a 400.
+ 
+ `lang` is required: 1 to 4 comma-separated language ids (`it,pt-BR`), each in `language`, with no duplicates and no empty items. A missing, empty or malformed `lang`, or an id not in `language`, gets a 400.
+ 
+@@ -477,7 +479,7 @@ BEGIN SELECT RAISE(ABORT, 'language ids are permanent'); END;
+ 
+ A `POST /stories` runs in one `BEGIN IMMEDIATE` transaction: read the story's current rows (a removed story or a missing published translation stops it here), then, for each translation whose sha256 differs or whose row is new, read `coalesce(max(cursor), 0) + 1` and upsert. A removal runs the same way, setting `change` to 2 and a new cursor on every row of the story. The write lock keeps two concurrent publishes from taking the same cursor.
+ 
+-Startup creates the schema and inserts the initial rows with `INSERT OR IGNORE`, so a fresh `postilla.db` works with no manual step. Later rows are added by hand with SQL.
++Startup creates the schema and inserts the initial rows with `INSERT OR IGNORE`, so a fresh `postilla.db` works with no manual step and a row renamed by hand stays renamed. Later rows are added by hand with SQL. Startup stamps the schema as `PRAGMA user_version = 1`, and refuses to start (logged, exit 1) on a database whose `user_version` is above 1, written by a newer build.
+ 
+ | Table | Initial rows |
+ |---|---|
+@@ -522,7 +524,7 @@ Everything comes from env, read and checked once at startup. A missing required
+ 
+ - A self-contained Zig project (Zig 0.17), with its own `build.zig` and `build.zig.zon`. `zig build` makes both executables into `zig-out/bin/`, and they share source files in `src/`: `server.zig` and `cli.zig` are the two entry points, `wire.zig` the binary encoding every body shares, `db.zig` the SQLite wrapper.
+ - SQLite is the amalgamation (3.53.2), a `build.zig.zon` dependency by URL and hash, compiled in multi-thread mode (`SQLITE_THREADSAFE=2`): every thread opens its own connection, and no connection is shared. Both executables link it: the server for `postilla.db`, the CLI to read `dict.db`.
+-- **`postilla-server`:** every connection runs as its own concurrent task on `std.Io.Threaded`, so one OS thread per connection, on `std.http.Server`. It closes a connection after a response when the request isn't keep-alive. Each connection opens its own SQLite connection; the database runs in WAL mode (`synchronous = NORMAL`) with a 5 s busy timeout, so readers never wait on a publish and a second writer waits for the first instead of failing. It makes no outbound calls.
++- **`postilla-server`:** every connection runs as its own concurrent task on `std.Io.Threaded`, so one OS thread per connection, on `std.http.Server`. It closes a connection after a response when the request isn't keep-alive, when it sends no request for 30 s, and after the 400 for a malformed or oversized (over 8 KiB) request head. Each connection opens its own SQLite connection; the database runs in WAL mode (`synchronous = NORMAL`) with a 5 s busy timeout, so readers never wait on a publish and a second writer waits for the first instead of failing. It makes no outbound calls.
+ - **`words`:** `src/words.zig`, the word rule, the normalization and the lookup chain ([tilla.md, Words](tilla.md#words)), with no dependencies. `build.zig` exports it as a module, so postilla-content imports the same code through a `build.zig.zon` dependency on this repo; SQLite is a lazy dependency, so importing `words` doesn't fetch it. `zig build dart` writes the app's normalization table (`zig-out/dart/words_norm.dart`) from the same source.
+ - **`postilla`:** one process per command, single-threaded. It vendors libopus, libopusenc and libFLAC, makes HTTPS client calls to OpenCode, Speechify, R2 and the server, and signs its R2 uploads and downloads with SigV4.
+ 
+diff --git a/src/db.zig b/src/db.zig
+index ec96898..f634df7 100644
+--- a/src/db.zig
++++ b/src/db.zig
+@@ -18,6 +18,54 @@ pub const Db = struct {
+     pub fn exec(d: Db, sql: [:0]const u8) error{Sqlite}!void {
+         if (c.sqlite3_exec(d.handle, sql.ptr, null, null, null) != c.SQLITE_OK) return fail(d);
+     }
++
++    pub fn prepare(d: Db, sql: [:0]const u8) error{Sqlite}!Stmt {
++        var s: Stmt = .{};
++        if (c.sqlite3_prepare_v2(d.handle, sql.ptr, @intCast(sql.len), &s.handle, null) != c.SQLITE_OK) return fail(d);
++        return s;
++    }
++};
++
++/// A prepared statement, finalized by its owner on every path. Parameters count from 1
++/// and columns from 0, as in SQLite.
++pub const Stmt = struct {
++    handle: ?*c.sqlite3_stmt = null,
++
++    pub fn finalize(s: Stmt) void {
++        _ = c.sqlite3_finalize(s.handle);
++    }
++
++    pub fn bindInt(s: Stmt, i: usize, v: i64) error{Sqlite}!void {
++        if (c.sqlite3_bind_int64(s.handle, @intCast(i), v) != c.SQLITE_OK) return s.failed();
++    }
++
++    /// `v` must outlive the statement's execution: SQLite doesn't copy it.
++    pub fn bindText(s: Stmt, i: usize, v: []const u8) error{Sqlite}!void {
++        if (c.sqlite3_bind_text(s.handle, @intCast(i), v.ptr, @intCast(v.len), null) != c.SQLITE_OK) return s.failed();
++    }
++
++    /// True when a row is ready, false when the statement is done.
++    pub fn step(s: Stmt) error{Sqlite}!bool {
++        return switch (c.sqlite3_step(s.handle)) {
++            c.SQLITE_ROW => true,
++            c.SQLITE_DONE => false,
++            else => s.failed(),
++        };
++    }
++
++    pub fn columnInt(s: Stmt, i: usize) i64 {
++        return c.sqlite3_column_int64(s.handle, @intCast(i));
++    }
++
++    /// The bytes of a TEXT or BLOB column, valid until the next `step`.
++    pub fn columnBlob(s: Stmt, i: usize) []const u8 {
++        const p: [*]const u8 = @ptrCast(c.sqlite3_column_blob(s.handle, @intCast(i)) orelse return "");
++        return p[0..@intCast(c.sqlite3_column_bytes(s.handle, @intCast(i)))];
++    }
++
++    fn failed(s: Stmt) error{Sqlite} {
++        return fail(.{ .handle = c.sqlite3_db_handle(s.handle) });
++    }
+ };
+ 
+ /// Opens (creating if needed) the database at `path` in WAL mode, with a busy timeout so
+@@ -43,6 +91,6 @@ pub fn open(path: [:0]const u8) error{Sqlite}!Db {
+ }
+ 
+ fn fail(d: Db) error{Sqlite} {
+-    log.err("{s}", .{c.sqlite3_errmsg(d.handle)});
++    log.warn("{s}", .{c.sqlite3_errmsg(d.handle)});
+     return error.Sqlite;
+ }
+diff --git a/src/server.zig b/src/server.zig
+index 89d12b6..62bb451 100644
+--- a/src/server.zig
++++ b/src/server.zig
+@@ -4,7 +4,8 @@
+ 
+ const std = @import("std");
+ const Io = std.Io;
+-const db = @import("db.zig");
++const wire = @import("wire.zig");
++pub const db = @import("db.zig");
+ 
+ const log = std.log.scoped(.server);
+ 
+@@ -13,6 +14,8 @@ pub const Config = struct {
+     bind: []const u8 = "127.0.0.1",
+     db_path: [:0]const u8 = "./postilla.db",
+     author_token: []const u8 = "",
++    /// A connection that sends no request for this long is closed.
++    idle_timeout_ms: i64 = 30_000,
+ };
+ 
+ pub fn main(init: std.process.Init) !void {
+@@ -47,15 +50,73 @@ fn readConfig(arena: std.mem.Allocator, env: *const std.process.Environ.Map) !Co
+     return config;
+ }
+ 
+-/// Opens the database once to check it (and, in slice 1, create the schema), then
+-/// binds. Port 0 picks a free port; the bound one is `listener.socket.address`.
++/// Opens the database once to create the schema and the seed rows (specification.md,
++/// Database), refusing a schema newer than this build, then binds. Port 0 picks a free
++/// port; the bound one is `listener.socket.address`.
+ pub fn listen(io: Io, config: *const Config) !Io.net.Server {
+     var d = try db.open(config.db_path);
+-    d.close();
++    defer d.close();
++    {
++        const version = try d.prepare("PRAGMA user_version");
++        defer version.finalize();
++        _ = try version.step();
++        if (version.columnInt(0) > 1) return error.NewerSchema;
++    }
++    try d.exec(schema);
+     const address = try Io.net.IpAddress.parse(config.bind, config.port);
+     return address.listen(io, .{ .reuse_address = true });
+ }
+ 
++const schema =
++    \\CREATE TABLE IF NOT EXISTS story (
++    \\  id        BLOB NOT NULL,              -- 16 bytes
++    \\  lang      TEXT NOT NULL REFERENCES language(id),
++    \\  sha256    BLOB NOT NULL,              -- 32 bytes, of the .tilla before gzip; kept when removed
++    \\  change    INTEGER NOT NULL,           -- 1 published, 2 removed
++    \\  cursor    INTEGER NOT NULL UNIQUE,
++    \\  PRIMARY KEY (id, lang)
++    \\) WITHOUT ROWID;
++    \\CREATE TABLE IF NOT EXISTS genre (
++    \\  id       TEXT PRIMARY KEY,   -- classici
++    \\  it       TEXT NOT NULL,      -- Classici
++    \\  pt_br    TEXT NOT NULL,      -- Clássicos
++    \\  en       TEXT NOT NULL       -- Classics
++    \\) WITHOUT ROWID;
++    \\CREATE TABLE IF NOT EXISTS tag (
++    \\  id       TEXT PRIMARY KEY,   -- cibo
++    \\  it       TEXT NOT NULL,      -- Cibo
++    \\  pt_br    TEXT NOT NULL,      -- Comida
++    \\  en       TEXT NOT NULL       -- Food
++    \\) WITHOUT ROWID;
++    \\CREATE TABLE IF NOT EXISTS author (
++    \\  id       TEXT PRIMARY KEY,   -- collodi
++    \\  name     TEXT NOT NULL       -- Carlo Collodi
++    \\) WITHOUT ROWID;
++    \\CREATE TRIGGER IF NOT EXISTS author_keep BEFORE DELETE ON author
++    \\BEGIN SELECT RAISE(ABORT, 'author ids are permanent'); END;
++    \\CREATE TRIGGER IF NOT EXISTS author_id_fixed BEFORE UPDATE OF id ON author
++    \\BEGIN SELECT RAISE(ABORT, 'author ids are permanent'); END;
++    \\CREATE TABLE IF NOT EXISTS language (
++    \\  id       TEXT PRIMARY KEY CHECK (length(id) <= 8),   -- it
++    \\  name     TEXT NOT NULL,      -- Italiano
++    \\  target   INTEGER NOT NULL,   -- 0 or 1
++    \\  translate INTEGER NOT NULL   -- 0 or 1
++    \\) WITHOUT ROWID;
++    \\CREATE TRIGGER IF NOT EXISTS language_keep BEFORE DELETE ON language
++    \\BEGIN SELECT RAISE(ABORT, 'language ids are permanent'); END;
++    \\CREATE TRIGGER IF NOT EXISTS language_id_fixed BEFORE UPDATE OF id ON language
++    \\BEGIN SELECT RAISE(ABORT, 'language ids are permanent'); END;
++    \\INSERT OR IGNORE INTO language VALUES
++    \\  ('it', 'Italiano', 1, 0), ('pt-BR', 'Português brasileiro', 0, 1), ('en', 'English', 0, 0);
++    \\INSERT OR IGNORE INTO genre VALUES
++    \\  ('quotidiano', 'Quotidiano', 'Cotidiano', 'Everyday'), ('famiglia', 'Famiglia', 'Família', 'Family'),
++    \\  ('viaggio', 'Viaggio', 'Viagem', 'Travel'), ('mistero', 'Mistero', 'Mistério', 'Mystery'),
++    \\  ('lettere', 'Lettere', 'Cartas', 'Letters'), ('racconto', 'Racconto', 'Conto', 'Short story'),
++    \\  ('classici', 'Classici', 'Clássicos', 'Classics');
++    \\INSERT OR IGNORE INTO author VALUES ('collodi', 'Carlo Collodi');
++    \\PRAGMA user_version = 1;
++;
++
+ /// Accepts connections until canceled.
+ pub fn serve(io: Io, listener: *Io.net.Server, config: *const Config) Io.Cancelable!void {
+     var group: Io.Group = .init;
+@@ -76,21 +137,151 @@ pub fn serve(io: Io, listener: *Io.net.Server, config: *const Config) Io.Cancela
+ }
+ 
+ fn connection(io: Io, stream: Io.net.Stream, config: *const Config) Io.Cancelable!void {
+-    _ = config;
+     defer stream.close(io);
++    var d = db.open(config.db_path) catch return;
++    defer d.close();
+     var in_buf: [8192]u8 = undefined;
+     var out_buf: [16384]u8 = undefined;
+     var in = stream.reader(io, &in_buf);
+     var out = stream.writer(io, &out_buf);
+     var http: std.http.Server = .init(&in.interface, &out.interface);
+     while (true) {
+-        var request = http.receiveHead() catch return;
++        // Wait at most `idle_timeout_ms` for the first bytes of the next request.
++        if (in.interface.bufferedLen() == 0) {
++            var data: [1][]u8 = .{&in_buf};
++            const idle: Io.Timeout = .{ .duration = .{ .raw = .fromMilliseconds(config.idle_timeout_ms), .clock = .awake } };
++            const read = io.operateTimeout(.{ .net_read = .{ .socket_handle = stream.socket.handle, .data = &data } }, idle) catch return;
++            in.interface.seek = 0;
++            in.interface.end = (read.net_read catch return).data_len;
++            if (in.interface.end == 0) return;
++        }
++        var request = http.receiveHead() catch |err| switch (err) {
++            error.HttpHeadersInvalid, error.HttpHeadersOversize => {
++                out.interface.writeAll("HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain\r\n" ++
++                    "content-length: 17\r\nconnection: close\r\n\r\nbad request head\n") catch return;
++                out.interface.flush() catch {};
++                return;
++            },
++            else => return,
++        };
++        var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
++        defer arena.deinit();
++        var status: std.http.Status = .ok;
++        const body = route(d, arena.allocator(), request.head, &status) catch blk: {
++            status = .internal_server_error;
++            break :blk "";
++        };
+         const keep_alive = request.head.keep_alive;
+-        request.respond("not found\n", .{
+-            .status = .not_found,
++        request.respond(body, .{
++            .status = status,
+             .keep_alive = keep_alive,
+-            .extra_headers = &.{.{ .name = "content-type", .value = "text/plain" }},
++            .extra_headers = &.{.{ .name = "content-type", .value = if (status == .ok) "application/octet-stream" else "text/plain" }},
+         }) catch return;
+         if (!keep_alive) return;
+     }
+ }
++
++/// Answers one request (specification.md, Endpoints): returns the body and sets `status`
++/// when it isn't 200. Only GET is served; any other method or path is a 404.
++fn route(d: db.Db, arena: std.mem.Allocator, head: std.http.Server.Request.Head, status: *std.http.Status) ![]const u8 {
++    const path_end = std.mem.findScalar(u8, head.target, '?') orelse head.target.len;
++    const path = if (head.method == .GET) head.target[0..path_end] else "";
++    if (std.mem.eql(u8, path, "/stories")) return stories(d, arena, head.target[@min(path_end + 1, head.target.len)..], status);
++    if (std.mem.eql(u8, path, "/genres")) return list(d, arena, "GNRS", "SELECT id, it, pt_br, en FROM genre ORDER BY id", 4, 0);
++    if (std.mem.eql(u8, path, "/tags")) return list(d, arena, "TAGS", "SELECT id, it, pt_br, en FROM tag ORDER BY id", 4, 0);
++    if (std.mem.eql(u8, path, "/authors")) return list(d, arena, "AUTH", "SELECT id, name FROM author ORDER BY id", 2, 0);
++    if (std.mem.eql(u8, path, "/languages")) return list(d, arena, "LANG", "SELECT id, name, target, translate FROM language ORDER BY id", 2, 2);
++    status.* = .not_found;
++    return "not found\n";
++}
++
++/// A GNRS, TAGS, AUTH or LANG body: one record per row of `sql`, its first `strs` columns
++/// as `str`, the next `ints` as `u8`.
++fn list(d: db.Db, arena: std.mem.Allocator, magic: *const [4]u8, sql: [:0]const u8, strs: usize, ints: usize) ![]const u8 {
++    // One read transaction, so the rows the first pass sizes are the rows the second writes.
++    try d.exec("BEGIN");
++    defer d.exec("COMMIT") catch {};
++    var size: usize = 7;
++    var count: u16 = 0;
++    {
++        const s = try d.prepare(sql);
++        defer s.finalize();
++        while (try s.step()) : (count += 1) {
++            size += ints;
++            for (0..strs) |i| size += wire.strSize(s.columnBlob(i));
++        }
++    }
++    var w: wire.Writer = .{ .buf = try arena.alloc(u8, size) };
++    w.header(magic);
++    w.int(u16, count);
++    const s = try d.prepare(sql);
++    defer s.finalize();
++    while (try s.step()) {
++        for (0..strs) |i| w.str(s.columnBlob(i));
++        for (strs..strs + ints) |i| w.int(u8, @intCast(s.columnInt(i)));
++    }
++    return w.written();
++}
++
++/// `GET /stories?since=&lang=`: parses the query, then writes the FEED body. A bad query
++/// sets `status` to 400 and returns the reason.
++fn stories(d: db.Db, arena: std.mem.Allocator, query: []const u8, status: *std.http.Status) ![]const u8 {
++    status.* = .bad_request;
++    var since: ?[]const u8 = null;
++    var lang: ?[]const u8 = null;
++    var params = std.mem.tokenizeScalar(u8, query, '&');
++    while (params.next()) |param| {
++        const name, const value = std.mem.cutScalar(u8, param, '=') orelse .{ param, "" };
++        if (std.mem.eql(u8, name, "since")) {
++            if (since != null) return "since: repeated\n";
++            since = value;
++        } else if (std.mem.eql(u8, name, "lang")) {
++            if (lang != null) return "lang: repeated\n";
++            lang = value;
++        }
++    }
++    const since_text = since orelse "0";
++    if (since_text.len > 10 or std.mem.findNone(u8, since_text, "0123456789") != null) return "since: not a u32\n";
++    const after = std.fmt.parseInt(u32, since_text, 10) catch return "since: not a u32\n";
++
++    var ids: [4]wire.Lang = undefined;
++    var n: usize = 0;
++    var items = std.mem.splitScalar(u8, lang orelse return "lang: missing\n", ',');
++    while (items.next()) |id| : (n += 1) {
++        if (id.len == 0) return "lang: empty id\n";
++        if (n == ids.len) return "lang: more than 4 ids\n";
++        ids[n] = wire.Lang.fromText(id) catch return std.fmt.allocPrint(arena, "lang: unknown id '{s}'\n", .{id});
++        for (ids[0..n]) |*seen| if (std.mem.eql(u8, seen.text(), id)) return std.fmt.allocPrint(arena, "lang: duplicate id '{s}'\n", .{id});
++    }
++    for (ids[0..n]) |*id| {
++        const s = try d.prepare("SELECT 1 FROM language WHERE id = ?1");
++        defer s.finalize();
++        try s.bindText(1, id.text());
++        if (!try s.step()) return std.fmt.allocPrint(arena, "lang: unknown id '{s}'\n", .{id.text()});
++    }
++
++    // Unbound `lang` parameters stay NULL and match no row.
++    const s = try d.prepare(
++        \\SELECT id, lang, change, sha256, cursor, count(*) OVER () FROM story
++        \\WHERE cursor > ?5 AND lang IN (?1, ?2, ?3, ?4) ORDER BY cursor
++    );
++    defer s.finalize();
++    for (ids[0..n], 1..) |*id, i| try s.bindText(i, id.text());
++    try s.bindInt(5, after);
++    var more = try s.step();
++    const count: u32 = if (more) @intCast(s.columnInt(5)) else 0;
++    var w: wire.Writer = .{ .buf = try arena.alloc(u8, 9 + 61 * @as(usize, count)) };
++    w.header("FEED");
++    w.int(u32, count);
++    while (more) : (more = try s.step()) {
++        const change = s.columnInt(2);
++        w.bytes(s.columnBlob(0));
++        // The row's lang is one of `ids`, so it parses.
++        w.bytes(&(wire.Lang.fromText(s.columnBlob(1)) catch unreachable).bytes);
++        w.int(u8, @intCast(change));
++        w.bytes(if (change == 2) &@as([32]u8, @splat(0)) else s.columnBlob(3));
++        w.int(u32, @intCast(s.columnInt(4)));
++    }
++    status.* = .ok;
++    return w.written();
++}
+diff --git a/src/wire.zig b/src/wire.zig
+index d596678..62dbe81 100644
+--- a/src/wire.zig
++++ b/src/wire.zig
+@@ -12,12 +12,12 @@ pub const StoryId = struct {
+ 
+     /// Parses the written form, `d0159518-99cc-46f0-bef2-b5b6f6f9a76d`, lowercase or
+     /// uppercase hex.
+-    pub fn parse(text: []const u8) error{BadUuid}!StoryId {
+-        if (text.len != 36) return error.BadUuid;
++    pub fn parse(written: []const u8) error{BadUuid}!StoryId {
++        if (written.len != 36) return error.BadUuid;
+         var id: StoryId = .{};
+         var hex: [32]u8 = undefined;
+         var n: usize = 0;
+-        for (text, 0..) |ch, i| {
++        for (written, 0..) |ch, i| {
+             const dash = i == 8 or i == 13 or i == 18 or i == 23;
+             if (dash != (ch == '-')) return error.BadUuid;
+             if (dash) continue;

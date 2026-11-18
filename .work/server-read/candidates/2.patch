@@ -1,0 +1,331 @@
+diff --git a/docs/formats/feed.ksy b/docs/formats/feed.ksy
+index fe62fad..1237a93 100644
+--- a/docs/formats/feed.ksy
++++ b/docs/formats/feed.ksy
+@@ -6,8 +6,9 @@ meta:
+     - postilla_enums
+ doc: |
+   Translations in the requested languages published, corrected or removed after the
+-  requested cursor, ascending by cursor. The last record's `cursor` is the value the app
+-  sends next time. Removed translations are listed like any other, `since=0` included.
++  requested cursor, ascending by cursor. Which cursor the app sends next time is in
++  app-handoff.md, §2 Syncing. Removed translations are listed like any other, `since=0`
++  included.
+   See specification.md, `GET /stories`.
+ doc-ref: ../specification.md
+ seq:
+diff --git a/docs/openapi.yaml b/docs/openapi.yaml
+index 2793dc2..c36c0b9 100644
+--- a/docs/openapi.yaml
++++ b/docs/openapi.yaml
+@@ -42,7 +42,9 @@ info:
+     (`pt-BR: published, missing from body`). A 401 has an empty body. A 500 (SQLite
+     error) has no body.
+ 
+-    Any path or method not listed here gets a 404.
++    A malformed request head, or one over 8 KiB, gets a 400 `bad request head` and the
++    connection closes. Any path or method not listed here, HEAD included, gets a 404
++    `not found`.
+     The backend sends no CORS headers.
+ servers:
+   - url: http://127.0.0.1:8080
+@@ -126,7 +128,7 @@ paths:
+                 $ref: "#/components/schemas/Binary"
+         "400":
+           $ref: "#/components/responses/BadRequest"
+-          description: "`since` isn't a decimal `u32`; or `lang` is missing, empty or malformed, has a duplicate, or names an id not in `language`"
++          description: "`since` isn't 1 to 10 decimal digits of a `u32` (`since: not a u32`) or is repeated (`since: repeated`); or `lang` is missing (`lang: missing`), repeated (`lang: repeated`), has an empty item (`lang: empty id`), more than 4 ids (`lang: more than 4 ids`), a duplicate (`lang: duplicate id 'it'`), or an id not in `language` (`lang: unknown id 'fr'`)"
+         "500":
+           $ref: "#/components/responses/DatabaseError"
+ 
+diff --git a/docs/specification.md b/docs/specification.md
+index dec8f0b..92c5911 100644
+--- a/docs/specification.md
++++ b/docs/specification.md
+@@ -164,9 +164,9 @@ Every 4xx except 401 carries a one-line English reason as `text/plain`, naming t
+ 
+ ### `GET /stories?since=<cursor>&lang=<ids>`
+ 
+-`since` is a decimal `u32`. When it is missing it counts as 0, which returns every translation in the listed languages. Any other value gets a 400.
++`since` is a decimal `u32`: 1 to 10 ASCII digits, leading zeros allowed. When it is missing it counts as 0, which returns every translation in the listed languages. Any other value (empty, signed, a space or any other byte) gets a 400 `since: not a u32`.
+ 
+-`lang` is required: 1 to 4 comma-separated language ids (`it,pt-BR`), each in `language`, with no duplicates and no empty items. A missing, empty or malformed `lang`, or an id not in `language`, gets a 400.
++`lang` is required: 1 to 4 comma-separated language ids (`it,pt-BR`), each in `language` (compared byte for byte), with no duplicates and no empty items. The 400 reasons are `lang: missing`, `lang: empty id`, `lang: more than 4 ids`, `lang: duplicate id 'it'` and `lang: unknown id 'fr'`. Unknown parameters are ignored; a repeated `since` or `lang` gets a 400 `since: repeated` or `lang: repeated`.
+ 
+ The response is `200`, `Content-Type: application/octet-stream`:
+ 
+@@ -477,7 +477,7 @@ BEGIN SELECT RAISE(ABORT, 'language ids are permanent'); END;
+ 
+ A `POST /stories` runs in one `BEGIN IMMEDIATE` transaction: read the story's current rows (a removed story or a missing published translation stops it here), then, for each translation whose sha256 differs or whose row is new, read `coalesce(max(cursor), 0) + 1` and upsert. A removal runs the same way, setting `change` to 2 and a new cursor on every row of the story. The write lock keeps two concurrent publishes from taking the same cursor.
+ 
+-Startup creates the schema and inserts the initial rows with `INSERT OR IGNORE`, so a fresh `postilla.db` works with no manual step. Later rows are added by hand with SQL.
++Startup creates the schema and inserts the initial rows with `INSERT OR IGNORE`, so a fresh `postilla.db` works with no manual step, and a row edited by hand keeps its edit across restarts. Later rows are added by hand with SQL. Startup sets `PRAGMA user_version = 1`, the schema version, and refuses to start (logged, exit 1) on a database whose `user_version` is above 1.
+ 
+ | Table | Initial rows |
+ |---|---|
+@@ -522,7 +522,7 @@ Everything comes from env, read and checked once at startup. A missing required
+ 
+ - A self-contained Zig project (Zig 0.17), with its own `build.zig` and `build.zig.zon`. `zig build` makes both executables into `zig-out/bin/`, and they share source files in `src/`: `server.zig` and `cli.zig` are the two entry points, `wire.zig` the binary encoding every body shares, `db.zig` the SQLite wrapper.
+ - SQLite is the amalgamation (3.53.2), a `build.zig.zon` dependency by URL and hash, compiled in multi-thread mode (`SQLITE_THREADSAFE=2`): every thread opens its own connection, and no connection is shared. Both executables link it: the server for `postilla.db`, the CLI to read `dict.db`.
+-- **`postilla-server`:** every connection runs as its own concurrent task on `std.Io.Threaded`, so one OS thread per connection, on `std.http.Server`. It closes a connection after a response when the request isn't keep-alive. Each connection opens its own SQLite connection; the database runs in WAL mode (`synchronous = NORMAL`) with a 5 s busy timeout, so readers never wait on a publish and a second writer waits for the first instead of failing. It makes no outbound calls.
++- **`postilla-server`:** every connection runs as its own concurrent task on `std.Io.Threaded`, so one OS thread per connection, on `std.http.Server`. It closes a connection after a response when the request isn't keep-alive, and after 30 s with no request. A malformed request head, or one over the 8 KiB head buffer, gets a 400 `bad request head` and the connection closes. Each connection opens its own SQLite connection; the database runs in WAL mode (`synchronous = NORMAL`) with a 5 s busy timeout, so readers never wait on a publish and a second writer waits for the first instead of failing. It makes no outbound calls.
+ - **`words`:** `src/words.zig`, the word rule, the normalization and the lookup chain ([tilla.md, Words](tilla.md#words)), with no dependencies. `build.zig` exports it as a module, so postilla-content imports the same code through a `build.zig.zon` dependency on this repo; SQLite is a lazy dependency, so importing `words` doesn't fetch it. `zig build dart` writes the app's normalization table (`zig-out/dart/words_norm.dart`) from the same source.
+ - **`postilla`:** one process per command, single-threaded. It vendors libopus, libopusenc and libFLAC, makes HTTPS client calls to OpenCode, Speechify, R2 and the server, and signs its R2 uploads and downloads with SigV4.
+ 
+diff --git a/src/db.zig b/src/db.zig
+index ec96898..7e46757 100644
+--- a/src/db.zig
++++ b/src/db.zig
+@@ -42,7 +42,9 @@ pub fn open(path: [:0]const u8) error{Sqlite}!Db {
+     return d;
+ }
+ 
+-fn fail(d: Db) error{Sqlite} {
+-    log.err("{s}", .{c.sqlite3_errmsg(d.handle)});
++/// Logs the connection's last error as a warning; the caller decides what the failure
++/// means (a 500, or a startup that stops).
++pub fn fail(d: Db) error{Sqlite} {
++    log.warn("{s}", .{c.sqlite3_errmsg(d.handle)});
+     return error.Sqlite;
+ }
+diff --git a/src/server.zig b/src/server.zig
+index 89d12b6..4c191c8 100644
+--- a/src/server.zig
++++ b/src/server.zig
+@@ -4,7 +4,8 @@
+ 
+ const std = @import("std");
+ const Io = std.Io;
+-const db = @import("db.zig");
++const c = @import("c");
++pub const db = @import("db.zig");
+ 
+ const log = std.log.scoped(.server);
+ 
+@@ -13,8 +14,36 @@ pub const Config = struct {
+     bind: []const u8 = "127.0.0.1",
+     db_path: [:0]const u8 = "./postilla.db",
+     author_token: []const u8 = "",
++    /// A connection that sends no request for this long is closed.
++    idle_timeout_ms: i64 = 30_000,
+ };
+ 
++const gpa = std.heap.smp_allocator;
++
++/// specification.md, Database. The temp table's CHECK refuses a schema newer than 1.
++const schema =
++    \\CREATE TEMP TABLE version_check (user_version CHECK (user_version <= 1));
++    \\INSERT INTO version_check SELECT user_version FROM pragma_user_version;
++    \\CREATE TABLE IF NOT EXISTS story (id BLOB NOT NULL, lang TEXT NOT NULL REFERENCES language(id),
++    \\  sha256 BLOB NOT NULL, change INTEGER NOT NULL, cursor INTEGER NOT NULL UNIQUE, PRIMARY KEY (id, lang)) WITHOUT ROWID;
++    \\CREATE TABLE IF NOT EXISTS genre (id TEXT PRIMARY KEY, it TEXT NOT NULL, pt_br TEXT NOT NULL, en TEXT NOT NULL) WITHOUT ROWID;
++    \\CREATE TABLE IF NOT EXISTS tag (id TEXT PRIMARY KEY, it TEXT NOT NULL, pt_br TEXT NOT NULL, en TEXT NOT NULL) WITHOUT ROWID;
++    \\CREATE TABLE IF NOT EXISTS author (id TEXT PRIMARY KEY, name TEXT NOT NULL) WITHOUT ROWID;
++    \\CREATE TRIGGER IF NOT EXISTS author_keep BEFORE DELETE ON author BEGIN SELECT RAISE(ABORT, 'author ids are permanent'); END;
++    \\CREATE TRIGGER IF NOT EXISTS author_id_fixed BEFORE UPDATE OF id ON author BEGIN SELECT RAISE(ABORT, 'author ids are permanent'); END;
++    \\CREATE TABLE IF NOT EXISTS language (id TEXT PRIMARY KEY CHECK (length(id) <= 8), name TEXT NOT NULL,
++    \\  target INTEGER NOT NULL, translate INTEGER NOT NULL) WITHOUT ROWID;
++    \\CREATE TRIGGER IF NOT EXISTS language_keep BEFORE DELETE ON language BEGIN SELECT RAISE(ABORT, 'language ids are permanent'); END;
++    \\CREATE TRIGGER IF NOT EXISTS language_id_fixed BEFORE UPDATE OF id ON language BEGIN SELECT RAISE(ABORT, 'language ids are permanent'); END;
++    \\INSERT OR IGNORE INTO language VALUES
++    \\  ('it', 'Italiano', 1, 0), ('pt-BR', 'Português brasileiro', 0, 1), ('en', 'English', 0, 0);
++    \\INSERT OR IGNORE INTO genre VALUES ('quotidiano', 'Quotidiano', 'Cotidiano', 'Everyday'), ('famiglia', 'Famiglia', 'Família', 'Family'),
++    \\  ('viaggio', 'Viaggio', 'Viagem', 'Travel'), ('mistero', 'Mistero', 'Mistério', 'Mystery'), ('lettere', 'Lettere', 'Cartas', 'Letters'),
++    \\  ('racconto', 'Racconto', 'Conto', 'Short story'), ('classici', 'Classici', 'Clássicos', 'Classics');
++    \\INSERT OR IGNORE INTO author VALUES ('collodi', 'Carlo Collodi');
++    \\PRAGMA user_version = 1;
++;
++
+ pub fn main(init: std.process.Init) !void {
+     const config = readConfig(init.arena.allocator(), init.environ_map) catch std.process.exit(1);
+     var listener = listen(init.io, &config) catch |err| {
+@@ -47,11 +76,12 @@ fn readConfig(arena: std.mem.Allocator, env: *const std.process.Environ.Map) !Co
+     return config;
+ }
+ 
+-/// Opens the database once to check it (and, in slice 1, create the schema), then
+-/// binds. Port 0 picks a free port; the bound one is `listener.socket.address`.
++/// Creates the schema and the seed rows, refusing a newer schema, then binds. Port 0
++/// picks a free port; the bound one is `listener.socket.address`.
+ pub fn listen(io: Io, config: *const Config) !Io.net.Server {
+     var d = try db.open(config.db_path);
+-    d.close();
++    defer d.close();
++    try d.exec(schema);
+     const address = try Io.net.IpAddress.parse(config.bind, config.port);
+     return address.listen(io, .{ .reuse_address = true });
+ }
+@@ -76,21 +106,164 @@ pub fn serve(io: Io, listener: *Io.net.Server, config: *const Config) Io.Cancela
+ }
+ 
+ fn connection(io: Io, stream: Io.net.Stream, config: *const Config) Io.Cancelable!void {
+-    _ = config;
+     defer stream.close(io);
++    var d = db.open(config.db_path) catch return;
++    defer d.close();
+     var in_buf: [8192]u8 = undefined;
+     var out_buf: [16384]u8 = undefined;
+     var in = stream.reader(io, &in_buf);
+     var out = stream.writer(io, &out_buf);
+     var http: std.http.Server = .init(&in.interface, &out.interface);
+     while (true) {
+-        var request = http.receiveHead() catch return;
+-        const keep_alive = request.head.keep_alive;
+-        request.respond("not found\n", .{
+-            .status = .not_found,
+-            .keep_alive = keep_alive,
+-            .extra_headers = &.{.{ .name = "content-type", .value = "text/plain" }},
+-        }) catch return;
+-        if (!keep_alive) return;
++        if (in.interface.bufferedLen() == 0) {
++            // Waits for the next request's first byte, without taking it.
++            var byte: [1]u8 = undefined;
++            var message: Io.net.IncomingMessage = .init;
++            const idle = io.operateTimeout(.{ .net_receive = .{
++                .socket_handle = stream.socket.handle,
++                .message_buffer = (&message)[0..1],
++                .data_buffer = &byte,
++                .flags = .{ .peek = true },
++            } }, .{ .duration = .{ .raw = .fromMilliseconds(config.idle_timeout_ms), .clock = .awake } }) catch return;
++            if (idle.net_receive[0] != null) return;
++        }
++        var request = http.receiveHead() catch |err| switch (err) {
++            error.HttpHeadersInvalid, error.HttpHeadersOversize => {
++                out.interface.writeAll("HTTP/1.1 400 Bad Request\r\nconnection: close\r\n" ++
++                    "content-type: text/plain\r\ncontent-length: 17\r\n\r\nbad request head\n") catch {};
++                out.interface.flush() catch {};
++                return;
++            },
++            else => return,
++        };
++        route(&request, d) catch |err| switch (err) {
++            error.Sqlite => request.respond("", .{ .status = .internal_server_error }) catch return,
++            else => return,
++        };
++        if (!request.head.keep_alive) return;
++    }
++}
++
++fn route(request: *std.http.Server.Request, d: db.Db) !void {
++    var params = std.mem.splitAny(u8, request.head.target, "?&");
++    const path = params.first();
++    if (request.head.method == .GET) {
++        if (std.mem.eql(u8, path, "/stories")) return feed(request, d, &params);
++        if (std.mem.eql(u8, path, "/genres")) return list(request, d, "GNRS", "SELECT id, it, pt_br, en FROM genre ORDER BY id");
++        if (std.mem.eql(u8, path, "/tags")) return list(request, d, "TAGS", "SELECT id, it, pt_br, en FROM tag ORDER BY id");
++        if (std.mem.eql(u8, path, "/authors")) return list(request, d, "AUTH", "SELECT id, name FROM author ORDER BY id");
++        if (std.mem.eql(u8, path, "/languages")) return list(request, d, "LANG", "SELECT id, name, target, translate FROM language ORDER BY id");
++    }
++    return reason(request, .not_found, "not found\n");
++}
++
++/// A list body (specification.md, Encoding): the rows of `sql`, each TEXT column as a
++/// `str` and each INTEGER column as a `u8`, after a header whose `count` is set last.
++fn list(request: *std.http.Server.Request, d: db.Db, comptime magic: []const u8, sql: [:0]const u8) !void {
++    const stmt = try prepare(d, sql);
++    defer _ = c.sqlite3_finalize(stmt);
++    var body: std.Io.Writer.Allocating = .init(gpa);
++    defer body.deinit();
++    try body.writer.writeAll(magic ++ "\x01\x00\x00");
++    var count: u16 = 0;
++    while (try step(d, stmt)) : (count += 1) {
++        var i: c_int = 0;
++        while (i < c.sqlite3_column_count(stmt)) : (i += 1) {
++            if (c.sqlite3_column_type(stmt, i) == c.SQLITE_INTEGER) {
++                try body.writer.writeByte(@intCast(c.sqlite3_column_int(stmt, i)));
++            } else {
++                const t = bytes(stmt, i);
++                try body.writer.writeInt(u32, @intCast(t.len), .big);
++                try body.writer.writeAll(t);
++            }
++        }
++    }
++    std.mem.writeInt(u16, body.written()[5..7], count, .big);
++    try request.respond(body.written(), .{ .extra_headers = &.{.{ .name = "content-type", .value = "application/octet-stream" }} });
++}
++
++/// `GET /stories`: parses `since` and `lang`, then runs one query on the `cursor` index.
++/// The first row carries the row count, so the body is sized once.
++fn feed(request: *std.http.Server.Request, d: db.Db, params: *std.mem.SplitIterator(u8, .any)) !void {
++    var since: ?[]const u8 = null;
++    var lang: ?[]const u8 = null;
++    while (params.next()) |p| {
++        if (std.mem.startsWith(u8, p, "since=")) {
++            if (since != null) return reason(request, .bad_request, "since: repeated\n");
++            since = p[6..];
++        } else if (std.mem.startsWith(u8, p, "lang=")) {
++            if (lang != null) return reason(request, .bad_request, "lang: repeated\n");
++            lang = p[5..];
++        }
+     }
++    const s = since orelse "0";
++    const parsed = if (s.len <= 10 and std.mem.indexOfNone(u8, s, "0123456789") == null) std.fmt.parseInt(u32, s, 10) else error.Overflow;
++    const after = parsed catch return reason(request, .bad_request, "since: not a u32\n");
++
++    // The reason names an id from the head, which is at most 8 KiB.
++    var message: [8256]u8 = undefined;
++    const known = try prepare(d, "SELECT 1 FROM language WHERE id = ?1");
++    defer _ = c.sqlite3_finalize(known);
++    var ids: [4][]const u8 = undefined;
++    var n: usize = 0;
++    var items = std.mem.splitScalar(u8, lang orelse return reason(request, .bad_request, "lang: missing\n"), ',');
++    while (items.next()) |id| : (n += 1) {
++        if (id.len == 0) return reason(request, .bad_request, "lang: empty id\n");
++        if (n == 4) return reason(request, .bad_request, "lang: more than 4 ids\n");
++        for (ids[0..n]) |prev| if (std.mem.eql(u8, id, prev))
++            return reason(request, .bad_request, std.fmt.bufPrint(&message, "lang: duplicate id '{s}'\n", .{id}) catch unreachable);
++        _ = c.sqlite3_reset(known);
++        _ = c.sqlite3_bind_text(known, 1, id.ptr, @intCast(id.len), null);
++        if (!try step(d, known))
++            return reason(request, .bad_request, std.fmt.bufPrint(&message, "lang: unknown id '{s}'\n", .{id}) catch unreachable);
++        ids[n] = id;
++    }
++
++    const stmt = try prepare(d, "SELECT id, lang, change, sha256, cursor, count(*) OVER () FROM story " ++
++        "WHERE cursor > ?1 AND lang IN (?2, ?3, ?4, ?5) ORDER BY cursor");
++    defer _ = c.sqlite3_finalize(stmt);
++    _ = c.sqlite3_bind_int64(stmt, 1, after);
++    for (ids[0..n], 2..) |id, i| _ = c.sqlite3_bind_text(stmt, @intCast(i), id.ptr, @intCast(id.len), null);
++    var row = try step(d, stmt);
++    const count: u32 = if (row) @intCast(c.sqlite3_column_int64(stmt, 5)) else 0;
++    var body: std.Io.Writer.Allocating = try .initCapacity(gpa, 9 + 61 * @as(usize, count));
++    defer body.deinit();
++    const w = &body.writer;
++    try w.writeAll("FEED\x01");
++    try w.writeInt(u32, count, .big);
++    while (row) : (row = try step(d, stmt)) {
++        try w.writeAll(bytes(stmt, 0));
++        const l = bytes(stmt, 1);
++        try w.writeAll(l);
++        try w.splatByteAll(0, 8 - l.len);
++        const change = c.sqlite3_column_int(stmt, 2);
++        try w.writeByte(@intCast(change));
++        if (change == 2) try w.splatByteAll(0, 32) else try w.writeAll(bytes(stmt, 3));
++        try w.writeInt(u32, @intCast(c.sqlite3_column_int64(stmt, 4)), .big);
++    }
++    try request.respond(body.written(), .{ .extra_headers = &.{.{ .name = "content-type", .value = "application/octet-stream" }} });
++}
++
++fn reason(request: *std.http.Server.Request, status: std.http.Status, line: []const u8) !void {
++    try request.respond(line, .{ .status = status, .extra_headers = &.{.{ .name = "content-type", .value = "text/plain" }} });
++}
++
++fn prepare(d: db.Db, sql: [:0]const u8) error{Sqlite}!?*c.sqlite3_stmt {
++    var stmt: ?*c.sqlite3_stmt = null;
++    if (c.sqlite3_prepare_v2(d.handle, sql.ptr, -1, &stmt, null) != c.SQLITE_OK) return db.fail(d);
++    return stmt;
++}
++
++fn step(d: db.Db, stmt: ?*c.sqlite3_stmt) error{Sqlite}!bool {
++    return switch (c.sqlite3_step(stmt)) {
++        c.SQLITE_ROW => true,
++        c.SQLITE_DONE => false,
++        else => db.fail(d),
++    };
++}
++
++/// The bytes of a TEXT or BLOB column; SQLite gives an empty one no pointer.
++fn bytes(stmt: ?*c.sqlite3_stmt, i: c_int) []const u8 {
++    const p: ?[*]const u8 = @ptrCast(c.sqlite3_column_blob(stmt, i));
++    return (p orelse return "")[0..@intCast(c.sqlite3_column_bytes(stmt, i))];
+ }
