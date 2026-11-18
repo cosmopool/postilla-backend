@@ -3,10 +3,10 @@
   "branch": "work/tilla-writer",
   "jira": "",
   "base": "f2367df566fc9e667c24616ce74e0f89021bb2ac",
-  "stage": "build",
-  "step": "done",
-  "round": null,
-  "commit": "99dd4d8cb2495e3e7ecb1eca4226263327cffabf",
+  "stage": "verify",
+  "step": "round-1",
+  "round": 1,
+  "commit": "29a1bc725f9cf2c0514aa9d47d3031f4aa0b23d7",
   "budget": {
     "added": 220,
     "newFiles": 1,
@@ -38,6 +38,21 @@
       "step": "done",
       "round": null,
       "commit": "99dd4d8cb2495e3e7ecb1eca4226263327cffabf"
+    },
+    {
+      "stage": "verify",
+      "step": "round-1",
+      "round": 1,
+      "commit": "29a1bc725f9cf2c0514aa9d47d3031f4aa0b23d7"
     }
-  ]
+  ],
+  "verify": {
+    "round": 1,
+    "newCritical": 1,
+    "seen": [
+      "src/tilla.zig: dict.db opened read-write with CREATE and switched to WAL: a read-only dict.db fails the build, a writable one is rewritten, a missing one is created",
+      "src/tilla.zig: Counts over 65 535 (tags, paragraphs, sentences in a paragraph) crash the build instead of being refused",
+      "src/tilla.zig: tilla.build opens the read-only dict.db read-write with CREATE and WAL, so it creates a missing file and rewrites an existing one"
+    ]
+  }
 }
