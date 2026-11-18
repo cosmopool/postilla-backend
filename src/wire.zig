@@ -12,12 +12,12 @@ pub const StoryId = struct {
 
     /// Parses the written form, `d0159518-99cc-46f0-bef2-b5b6f6f9a76d`, lowercase or
     /// uppercase hex.
-    pub fn parse(text: []const u8) error{BadUuid}!StoryId {
-        if (text.len != 36) return error.BadUuid;
+    pub fn parse(written: []const u8) error{BadUuid}!StoryId {
+        if (written.len != 36) return error.BadUuid;
         var id: StoryId = .{};
         var hex: [32]u8 = undefined;
         var n: usize = 0;
-        for (text, 0..) |ch, i| {
+        for (written, 0..) |ch, i| {
             const dash = i == 8 or i == 13 or i == 18 or i == 23;
             if (dash != (ch == '-')) return error.BadUuid;
             if (dash) continue;
