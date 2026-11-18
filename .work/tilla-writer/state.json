@@ -4,9 +4,9 @@
   "jira": "",
   "base": "f2367df566fc9e667c24616ce74e0f89021bb2ac",
   "stage": "verify",
-  "step": "round-1",
-  "round": 1,
-  "commit": "29a1bc725f9cf2c0514aa9d47d3031f4aa0b23d7",
+  "step": "round-2",
+  "round": 2,
+  "commit": "7c7d7ffe72db558cda82b4aaa90bfa12d2fa6840",
   "budget": {
     "added": 220,
     "newFiles": 1,
@@ -44,11 +44,17 @@
       "step": "round-1",
       "round": 1,
       "commit": "29a1bc725f9cf2c0514aa9d47d3031f4aa0b23d7"
+    },
+    {
+      "stage": "verify",
+      "step": "round-2",
+      "round": 2,
+      "commit": "7c7d7ffe72db558cda82b4aaa90bfa12d2fa6840"
     }
   ],
   "verify": {
-    "round": 1,
-    "newCritical": 1,
+    "round": 2,
+    "newCritical": 0,
     "seen": [
       "src/tilla.zig: dict.db opened read-write with CREATE and switched to WAL: a read-only dict.db fails the build, a writable one is rewritten, a missing one is created",
       "src/tilla.zig: Counts over 65 535 (tags, paragraphs, sentences in a paragraph) crash the build instead of being refused",
