@@ -1,0 +1,16 @@
+1/13 r2.test.AC-1, AC-2: an upload is one signed PUT to /<bucket>/<key> with the exact body, the type by extension, the immutable Cache-Control and no Content-Encoding...OK
+2/13 r2.test.AC-3: a download is a signed GET that brings the object's body back byte for byte...OK
+3/13 r2.test.AC-4: two 500s then a 200 succeed on the third try, after the first and the second scheduled waits...OK
+4/13 r2.test.AC-5: a Retry-After on a 429 or a 503 replaces the scheduled wait, capped at the longest wait allowed...OK
+5/13 r2.test.AC-6: a 403, a 400 or a 404 fails after one try with that status...OK
+6/13 r2.test.AC-7: four failing tries end the call with the last status, and no fifth try is made...OK
+7/13 r2.test.AC-F1: a connection that answers nothing fails the try after the idle timeout, and the retry succeeds...OK
+8/13 r2.test.AC-F2: an endpoint where nothing listens fails every try to connect, and the call fails after 4 tries...OK
+9/13 r2.test.AC-8: an empty dict dir gets the build dict/latest names, checked and gunzipped into <sha>.db, and a second call downloads nothing...OK
+10/13 r2.test.AC-9: a new dict/latest replaces the cached build, and the older .db is deleted while other files stay...OK
+11/13 r2.test.AC-F3: a .db.gz whose size or sha256 doesn't match dict/latest fails every try and writes no .db...OK
+12/13 r2.test.AC-F3: a dict/latest line that doesn't parse fails r2.dict at once, with nothing else downloaded...OK
+13/13 r2.test.AC-F4: a dict dir that can't be written fails r2.dict with the filesystem error and leaves no temp file, nor does a build that breaks halfway through being written...OK
+All 13 tests passed.
+1/1 r2_repro_r1_3.test.an upload whose first try times out mid-body is retried on a fresh connection and succeeds once R2 answers...OK
+All 1 tests passed.

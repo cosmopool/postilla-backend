@@ -3,10 +3,10 @@
   "branch": "work/r2",
   "jira": "",
   "base": "93c1c2af1bd23806a4845df2964ba010d703e328",
-  "stage": "bench",
-  "step": "done",
+  "stage": "minimize",
+  "step": "auto",
   "round": null,
-  "commit": "d2d6d722afc91fa086db052f73a16ad3f404939a",
+  "commit": "75704eb78ce74da339396682d43c83d7cfb553fe",
   "budget": {
     "added": 300,
     "newFiles": 2,
@@ -50,6 +50,12 @@
       "step": "done",
       "round": null,
       "commit": "d2d6d722afc91fa086db052f73a16ad3f404939a"
+    },
+    {
+      "stage": "minimize",
+      "step": "auto",
+      "round": null,
+      "commit": "75704eb78ce74da339396682d43c83d7cfb553fe"
     }
   ],
   "verify": {
