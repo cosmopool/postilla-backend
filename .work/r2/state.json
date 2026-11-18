@@ -3,10 +3,10 @@
   "branch": "work/r2",
   "jira": "",
   "base": "93c1c2af1bd23806a4845df2964ba010d703e328",
-  "stage": "minimize",
-  "step": "approved",
+  "stage": "finish",
+  "step": "done",
   "round": null,
-  "commit": "f6a9d5b4d492619b7e0d24730e791a75b468c09d",
+  "commit": "737102554e479cf5092169b092666ce868984909",
   "budget": {
     "added": 300,
     "newFiles": 2,
@@ -62,6 +62,12 @@
       "step": "approved",
       "round": null,
       "commit": "f6a9d5b4d492619b7e0d24730e791a75b468c09d"
+    },
+    {
+      "stage": "finish",
+      "step": "done",
+      "round": null,
+      "commit": "737102554e479cf5092169b092666ce868984909"
     }
   ],
   "verify": {
@@ -72,5 +78,6 @@
       "src/r2.zig: SigV4 signature is computed once per call, not once per try as decided",
       "src/outbound.zig: Failed try's HTTP connection is reused by every retry"
     ]
-  }
+  },
+  "clean_branch": "feat/r2"
 }
