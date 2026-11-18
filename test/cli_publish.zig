@@ -827,18 +827,40 @@ test "AC-F5: a cached dict.db that isn't a SQLite database, or has no form table
     try w.expectNothing();
 }
 
-test "AC-F1: an upload R2 fails on every try stops the command naming its key, and no POST /stories reaches the server" {
+test "AC-F1: an upload R2 fails on every try stops the command naming its key, and no POST /stories reaches the server; a failed .tilla.gz stops it before any audio upload" {
     var key_buf: [128]u8 = undefined;
     const key = try std.fmt.bufPrint(&key_buf, "stories/" ++ story_id ++ "/it/{s}.flac", .{&sha256Hex(flac)});
+    {
+        var w: World = undefined;
+        try w.start(.{ .fail = key });
+        defer w.stop();
+        const a = w.arena.allocator();
+
+        const run = try w.publish(try w.folder(try story(a, &.{})));
+        try expectEqual(1, run.code);
+        try expectSays(run.out, key);
+        try expectEqual(4, w.f.requests(.PUT, key));
+        try expectEqualSlices(u8, "FEED\x01\x00\x00\x00\x00", try w.feed());
+    }
+
+    // Every .tilla.gz upload fails: the first one tried takes all four tries, then the
+    // command stops, before the other translation, the audio and the POST.
     var w: World = undefined;
-    try w.start(.{ .fail = key });
+    try w.start(.{ .fail = ".tilla.gz" });
     defer w.stop();
     const a = w.arena.allocator();
 
     const run = try w.publish(try w.folder(try story(a, &.{})));
     try expectEqual(1, run.code);
-    try expectSays(run.out, key);
-    try expectEqual(4, w.f.requests(.PUT, key));
+    const keys = [_][]const u8{
+        try std.fmt.allocPrint(a, "stories/" ++ story_id ++ "/it/{s}.tilla.gz", .{&std.fmt.bytesToHex((try tilla.build(a, try expected("it"), w.dict_path)).sha256, .lower)}),
+        try std.fmt.allocPrint(a, "stories/" ++ story_id ++ "/pt-BR/{s}.tilla.gz", .{&std.fmt.bytesToHex((try tilla.build(a, try expected("pt-BR"), w.dict_path)).sha256, .lower)}),
+    };
+    if (std.mem.find(u8, run.out, keys[0]) == null) try expectSays(run.out, keys[1]);
+    try expectEqual(4, w.f.requests(.PUT, ".tilla.gz"));
+    try expectEqual(0, w.f.requests(.PUT, ".opus"));
+    try expectEqual(0, w.f.requests(.PUT, ".flac"));
+    try expectEqual(0, w.f.stored(prefix));
     try expectEqualSlices(u8, "FEED\x01\x00\x00\x00\x00", try w.feed());
 }
 
