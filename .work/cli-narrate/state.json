@@ -3,10 +3,10 @@
   "branch": "work/cli-narrate",
   "jira": "",
   "base": "2be599996f7a0a49b9be79f0e591827ca388a745",
-  "stage": "minimize",
-  "step": "approved",
+  "stage": "finish",
+  "step": "done",
   "round": null,
-  "commit": "f51181def27c508481020805f087d22ee9903d8a",
+  "commit": "8ce92cf14597906a5fa30590aa6bc63a5bd86a95",
   "budget": {
     "added": 300,
     "newFiles": 0,
@@ -68,6 +68,12 @@
       "step": "approved",
       "round": null,
       "commit": "f51181def27c508481020805f087d22ee9903d8a"
+    },
+    {
+      "stage": "finish",
+      "step": "done",
+      "round": null,
+      "commit": "8ce92cf14597906a5fa30590aa6bc63a5bd86a95"
     }
   ],
   "verify": {
@@ -78,5 +84,6 @@
       "src/cli.zig: narrate's PCM buffer is regrown in the arena per event and re-created per try, keeping about 3x the PCM per try",
       "src/cli.zig: New bad-stream condition (mark time outside u32 ms) is not in the spec's bad-stream list"
     ]
-  }
+  },
+  "clean_branch": "feat/cli-narrate"
 }
