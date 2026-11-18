@@ -160,19 +160,20 @@ fn route(request: *std.http.Server.Request, d: db.Db) !void {
 /// A list body (specification.md, Encoding): the rows of `sql`, each TEXT column as a
 /// `str` and each INTEGER column as a `u8`, after a header whose `count` is set last.
 fn list(request: *std.http.Server.Request, d: db.Db, comptime magic: []const u8, sql: [:0]const u8) !void {
-    const stmt = try prepare(d, sql);
+    const st = try d.prepare(sql);
+    const stmt = st.handle;
     defer _ = c.sqlite3_finalize(stmt);
     var body: std.Io.Writer.Allocating = .init(gpa);
     defer body.deinit();
     try body.writer.writeAll(magic ++ "\x01\x00\x00");
     var count: u16 = 0;
-    while (try step(d, stmt)) : (count += 1) {
+    while (try st.step()) : (count += 1) {
         var i: c_int = 0;
         while (i < c.sqlite3_column_count(stmt)) : (i += 1) {
             if (c.sqlite3_column_type(stmt, i) == c.SQLITE_INTEGER) {
                 try body.writer.writeByte(@intCast(c.sqlite3_column_int(stmt, i)));
             } else {
-                const t = bytes(stmt, i);
+                const t = st.bytes(i);
                 try body.writer.writeInt(u32, @intCast(t.len), .big);
                 try body.writer.writeAll(t);
             }
@@ -202,8 +203,8 @@ fn feed(request: *std.http.Server.Request, d: db.Db, params: *std.mem.SplitItera
 
     // The reason names an id from the head, which is at most 8 KiB.
     var message: [8256]u8 = undefined;
-    const known = try prepare(d, "SELECT 1 FROM language WHERE id = ?1");
-    defer _ = c.sqlite3_finalize(known);
+    const known = try d.prepare("SELECT 1 FROM language WHERE id = ?1");
+    defer _ = c.sqlite3_finalize(known.handle);
     var ids: [4][]const u8 = undefined;
     var n: usize = 0;
     var items = std.mem.splitScalar(u8, lang orelse return reason(request, .bad_request, "lang: missing\n"), ',');
@@ -212,33 +213,34 @@ fn feed(request: *std.http.Server.Request, d: db.Db, params: *std.mem.SplitItera
         if (n == 4) return reason(request, .bad_request, "lang: more than 4 ids\n");
         for (ids[0..n]) |prev| if (std.mem.eql(u8, id, prev))
             return reason(request, .bad_request, std.fmt.bufPrint(&message, "lang: duplicate id '{s}'\n", .{id}) catch unreachable);
-        _ = c.sqlite3_reset(known);
-        _ = c.sqlite3_bind_text(known, 1, id.ptr, @intCast(id.len), null);
-        if (!try step(d, known))
+        _ = c.sqlite3_reset(known.handle);
+        _ = c.sqlite3_bind_text(known.handle, 1, id.ptr, @intCast(id.len), null);
+        if (!try known.step())
             return reason(request, .bad_request, std.fmt.bufPrint(&message, "lang: unknown id '{s}'\n", .{id}) catch unreachable);
         ids[n] = id;
     }
 
-    const stmt = try prepare(d, "SELECT id, lang, change, sha256, cursor, count(*) OVER () FROM story " ++
+    const st = try d.prepare("SELECT id, lang, change, sha256, cursor, count(*) OVER () FROM story " ++
         "WHERE cursor > ?1 AND lang IN (?2, ?3, ?4, ?5) ORDER BY cursor");
+    const stmt = st.handle;
     defer _ = c.sqlite3_finalize(stmt);
     _ = c.sqlite3_bind_int64(stmt, 1, after);
     for (ids[0..n], 2..) |id, i| _ = c.sqlite3_bind_text(stmt, @intCast(i), id.ptr, @intCast(id.len), null);
-    var row = try step(d, stmt);
+    var row = try st.step();
     const count: u32 = if (row) @intCast(c.sqlite3_column_int64(stmt, 5)) else 0;
     var body: std.Io.Writer.Allocating = try .initCapacity(gpa, 9 + 61 * @as(usize, count));
     defer body.deinit();
     const w = &body.writer;
     try w.writeAll("FEED\x01");
     try w.writeInt(u32, count, .big);
-    while (row) : (row = try step(d, stmt)) {
-        try w.writeAll(bytes(stmt, 0));
-        const l = bytes(stmt, 1);
+    while (row) : (row = try st.step()) {
+        try w.writeAll(st.bytes(0));
+        const l = st.bytes(1);
         try w.writeAll(l);
         try w.splatByteAll(0, 8 - l.len);
         const change = c.sqlite3_column_int(stmt, 2);
         try w.writeByte(@intCast(change));
-        if (change == 2) try w.splatByteAll(0, 32) else try w.writeAll(bytes(stmt, 3));
+        if (change == 2) try w.splatByteAll(0, 32) else try w.writeAll(st.bytes(3));
         try w.writeInt(u32, @intCast(c.sqlite3_column_int64(stmt, 4)), .big);
     }
     try request.respond(body.written(), .{ .extra_headers = &.{.{ .name = "content-type", .value = "application/octet-stream" }} });
@@ -246,24 +248,4 @@ fn feed(request: *std.http.Server.Request, d: db.Db, params: *std.mem.SplitItera
 
 fn reason(request: *std.http.Server.Request, status: std.http.Status, line: []const u8) !void {
     try request.respond(line, .{ .status = status, .extra_headers = &.{.{ .name = "content-type", .value = "text/plain" }} });
-}
-
-fn prepare(d: db.Db, sql: [:0]const u8) error{Sqlite}!?*c.sqlite3_stmt {
-    var stmt: ?*c.sqlite3_stmt = null;
-    if (c.sqlite3_prepare_v2(d.handle, sql.ptr, -1, &stmt, null) != c.SQLITE_OK) return db.fail(d);
-    return stmt;
-}
-
-fn step(d: db.Db, stmt: ?*c.sqlite3_stmt) error{Sqlite}!bool {
-    return switch (c.sqlite3_step(stmt)) {
-        c.SQLITE_ROW => true,
-        c.SQLITE_DONE => false,
-        else => db.fail(d),
-    };
-}
-
-/// The bytes of a TEXT or BLOB column; SQLite gives an empty one no pointer.
-fn bytes(stmt: ?*c.sqlite3_stmt, i: c_int) []const u8 {
-    const p: ?[*]const u8 = @ptrCast(c.sqlite3_column_blob(stmt, i));
-    return (p orelse return "")[0..@intCast(c.sqlite3_column_bytes(stmt, i))];
 }
