@@ -409,7 +409,7 @@ The input is the translation's paragraphs joined in reading order: the sentences
 - Other event types are ignored.
 - `speech.error`, or a dropped connection, counts as a failed try. The whole call is retried, since one stream can't resume halfway.
 
-A 200 whose events include `speech.error`, that ends without `speech.done`, whose audio isn't valid base64 or has an odd byte count, or whose events aren't JSON is a bad stream. Each of up to 3 tries is a whole `outbound.request` ([Retries](#retries)), the next one sent at once; after the third the command stops with `<lang>: narration: <reason>`, the `speech.error` message when there is one. A non-200 answer stops it at once with the status.
+A 200 whose events include `speech.error`, that ends without `speech.done`, whose audio isn't valid base64 or has an odd byte count, whose events aren't JSON, or with a mark whose `start_time` or `end_time` isn't a number of ms from 0 to 4,294,967,295 is a bad stream. Each of up to 3 tries is a whole `outbound.request` ([Retries](#retries)), the next one sent at once; after the third the command stops with `<lang>: narration: <reason>`, the `speech.error` message when there is one. A non-200 answer stops it at once with the status.
 
 The stream yields three outputs:
 
