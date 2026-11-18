@@ -96,7 +96,7 @@ The word rule, the normalization and the lookup are one piece of Zig code, `src/
 - Every apostrophe becomes `'` and every hyphen `-`.
 - Digits and every other character stay as they are.
 
-The letter table covers the whole letter range above. It was generated once from Python's `unicodedata` (decompose, drop marks, lowercase) plus the hand-written entries for letters that don't decompose, and is committed as a literal table in `words.zig`; nothing reads Unicode data at build or run time, so every program and platform gives the same bytes. The output is UTF-8.
+The letter table covers the whole letter range above. It was generated once from Python's `unicodedata` (decompose, drop marks, lowercase) plus the hand-written entries for letters that don't decompose, and is committed as a literal table, `src/words_table.zig`, written by `tools/words_table.py` (run by hand, never at build time); nothing reads Unicode data at build or run time, so every program and platform gives the same bytes. The output is UTF-8.
 
 ### Looking a word up
 
@@ -105,6 +105,8 @@ The CLI (for `band_words`) and the app (on tap) look a word up in `dict.db` the 
 1. `form` = the word as written.
 2. `form_norm` = the normalized word.
 3. If the word has an apostrophe between two letters, steps 1 and 2 again on the part after the last such apostrophe: *l'aria* → *aria*, *dell'anno* → *anno*, *c'è* → *è*.
+
+`words.lookupKeys` gives these keys in order, skipping a key equal to the one before it; the caller runs them against `form` and `form_norm`.
 
 A word that finds nothing has no lemma: on tap the app says so, and in `band_words` it counts as band 0.
 
