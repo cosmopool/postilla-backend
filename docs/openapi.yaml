@@ -180,7 +180,7 @@ paths:
           $ref: "#/components/responses/Done"
         "400":
           $ref: "#/components/responses/BadRequest"
-          description: "The body fails the parse, or a `lang` isn't in `language` (`lang: unknown id 'fr'`)"
+          description: "No `Content-Length` (`body: length required`) or one above 10 222 (`body: too large`), both answered before the body is read; the body fails the parse (`body: bad magic`, `body: bad version`, `body: wrong length`, `lang: empty or not ASCII`, `lang: repeated id 'it'`, `lang: no 'it'`); or a `lang` isn't in `language` (`lang: unknown id 'fr'`)"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
@@ -210,12 +210,12 @@ paths:
           $ref: "#/components/responses/Done"
         "400":
           $ref: "#/components/responses/BadRequest"
-          description: "`id` isn't a UUID"
+          description: "`id` isn't a UUID, hex in either case (`id: not a UUID`)"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
-          description: Unknown story id
+          description: Unknown story id (`not found`)
         "500":
           $ref: "#/components/responses/DatabaseError"
 
@@ -352,8 +352,10 @@ components:
       scheme: bearer
       description: |
         The token in env `POSTILLA_AUTHOR_TOKEN`, compared in constant time. A missing or
-        wrong token gets a 401 with an empty body, before the body is read.
-        `POST /stories` and `DELETE /stories/{id}` need it; `GET /stories`, `GET /genres`,
+        wrong token gets a 401 with an empty body, before the body is read. The scheme is
+        matched case-insensitively, followed by one space. The route is matched first, so
+        an unknown path or method is a 404 with no token check. A write's connection closes
+        after its answer. `POST /stories` and `DELETE /stories/{id}` need it; `GET /stories`, `GET /genres`,
         `GET /tags`, `GET /authors` and `GET /languages` are public.
   parameters:
     StoryId:

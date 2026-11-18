@@ -154,7 +154,7 @@ dict/<sha256>.db.gz                         a dictionary build
 
 ### Auth
 
-`POST /stories` and `DELETE /stories/<id>` take `Authorization: Bearer <token>`, where the token is env `POSTILLA_AUTHOR_TOKEN`, compared in constant time. A missing or wrong token gets a 401 with an empty body, before the body is read. `GET /stories`, `GET /genres`, `GET /tags`, `GET /authors` and `GET /languages` are public.
+`POST /stories` and `DELETE /stories/<id>` take `Authorization: Bearer <token>`, where the token is env `POSTILLA_AUTHOR_TOKEN`, compared in constant time (both sides hashed with SHA-256, the digests compared with `std.crypto.timing_safe.eql`). The scheme is matched case-insensitively and followed by one space. A missing or wrong token, or another scheme, gets a 401 with an empty body, before the body is read. The route (path and method) is matched first, so an unknown path or method is a 404 with no token check; then the token; then the body. A write's connection closes after its answer, so a body that went unread is never taken for the next request. `GET /stories`, `GET /genres`, `GET /tags`, `GET /authors` and `GET /languages` are public.
 
 The authoring client is the `postilla` CLI, so the backend sends no CORS headers.
 
@@ -206,14 +206,14 @@ Then `lang_count` translations:
 | `lang` | `lang` | The translation's language |
 | `sha256` | `sha256` | sha256 of its `.tilla`, before gzip |
 
-The body is `22 + 40 × lang_count` bytes. The boundary parse rejects with 400 when any of these fail:
+The body is `22 + 40 × lang_count` bytes. It needs a `Content-Length`: a missing one (or chunked transfer) gets a 400 `body: length required`, and one above 10 222 bytes (the largest valid body, `lang_count` 255) a 400 `body: too large`, both without reading the body. The boundary parse rejects with 400 when any of these fail, checked in this order:
 
-1. The magic is `STRY` and the version is 1.
-2. `lang_count` is at least 1, and the body is exactly `22 + 40 × lang_count` bytes.
-3. Every `lang` is non-empty ASCII followed only by zero bytes, and no `lang` repeats.
-4. One `lang` is `it`, the original.
+1. The magic is `STRY` and the version is 1 (`body: bad magic`, `body: bad version`).
+2. `lang_count` is at least 1, and the body is exactly `22 + 40 × lang_count` bytes (`body: wrong length`).
+3. Every `lang` is non-empty ASCII followed only by zero bytes (`lang: empty or not ASCII`), and no `lang` repeats (`lang: repeated id 'it'`).
+4. One `lang` is `it`, the original (`lang: no 'it'`).
 
-Past the parse, a `lang` not in `language` gets a 400 (`lang: unknown id 'fr'`), and a removed story id gets a 409 (`story removed`). A story that already has a published translation in a language the body doesn't carry gets a 409 (`pt-BR: published, missing from body`), so a republish can't leave an old translation next to a new original with different paragraph counts. There is no override: a republish carries every language the story was published in.
+Past the parse, a `lang` not in `language` (compared byte for byte) gets a 400 (`lang: unknown id 'fr'`), and a removed story id gets a 409 (`story removed`). A story that already has a published translation in a language the body doesn't carry gets a 409 (`pt-BR: published, missing from body`), so a republish can't leave an old translation next to a new original with different paragraph counts. There is no override: a republish carries every language the story was published in.
 
 Then, in one `BEGIN IMMEDIATE` transaction, every translation in the body is upserted: a row whose sha256 changed, or that is new, gets `change` `published` and the next cursor; a row whose sha256 is the same keeps its cursor ([Cursor](#cursor)). So a syncing app sees all of a story's changed translations or none.
 
@@ -225,14 +225,14 @@ Removes a story: it tombstones every translation of the story at once, in one `B
 
 A removed id stays removed: `POST /stories` with it gets a 409 (`story removed`). Bringing a story back is on the [roadmap](roadmap.md#authoring-app).
 
-No body. `<id>` is the story UUID in its written form.
+No body; any body sent is ignored. `<id>` is the story UUID in its written form, hex in either case; a trailing slash or another segment after it is an unknown path (404).
 
 | Case | Answer |
 |---|---|
 | Published story | 200 with no body, every translation tombstoned |
 | Already removed | 200 with no body, nothing changes (no new cursor) |
-| Unknown id | 404 |
-| `<id>` not a UUID | 400 |
+| Unknown id | 404 `not found` |
+| `<id>` not a UUID | 400 `id: not a UUID` |
 | Missing or wrong token | 401 |
 
 ### Status codes
@@ -475,7 +475,7 @@ BEGIN SELECT RAISE(ABORT, 'language ids are permanent'); END;
 
 `story` holds one row per translation: the feed. The story-level fields and the titles aren't copied there; they live in the story folders and in the `.tilla` files. The `UNIQUE` on `cursor` gives the index the GET query uses (`WHERE cursor > ? AND lang IN (…) ORDER BY cursor`). A removed row keeps its last `sha256`, and `FEED` sends zeros for it.
 
-A `POST /stories` runs in one `BEGIN IMMEDIATE` transaction: read the story's current rows (a removed story or a missing published translation stops it here), then, for each translation whose sha256 differs or whose row is new, read `coalesce(max(cursor), 0) + 1` and upsert. A removal runs the same way, setting `change` to 2 and a new cursor on every row of the story. The write lock keeps two concurrent publishes from taking the same cursor.
+A `POST /stories` runs in one `BEGIN IMMEDIATE` transaction: read the story's current rows (a removed story or a missing published translation stops it here), then, for each translation whose sha256 differs or whose row is new, read `coalesce(max(cursor), 0) + 1` and upsert. A removal runs the same way, setting `change` to 2 and a new cursor on every row of the story. The write lock keeps two concurrent publishes from taking the same cursor. A 4xx or any SQLite error rolls the transaction back, so a refused or failed write changes no row; the body is read and parsed before the transaction starts, so a slow client never holds the write lock.
 
 Startup creates the schema and inserts the initial rows with `INSERT OR IGNORE`, so a fresh `postilla.db` works with no manual step, and a row edited by hand keeps its edit across restarts. Later rows are added by hand with SQL. Startup sets `PRAGMA user_version = 1`, the schema version, and refuses to start (logged, exit 1) on a database whose `user_version` is above 1.
 
