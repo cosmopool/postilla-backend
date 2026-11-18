@@ -3,10 +3,10 @@
   "branch": "work/server-read",
   "jira": "",
   "base": "f62dd56c983ff2e0aaf4f647adfa779ff52e43f3",
-  "stage": "minimize",
-  "step": "approved",
+  "stage": "finish",
+  "step": "done",
   "round": null,
-  "commit": "51bed9f33b2aef9d1942f99d64c1a749658c3870",
+  "commit": "521ba4c9a756a5a7e842da883f5a5ad6afae07fa",
   "budget": {
     "added": 350,
     "newFiles": 1,
@@ -68,6 +68,12 @@
       "step": "approved",
       "round": null,
       "commit": "51bed9f33b2aef9d1942f99d64c1a749658c3870"
+    },
+    {
+      "stage": "finish",
+      "step": "done",
+      "round": null,
+      "commit": "521ba4c9a756a5a7e842da883f5a5ad6afae07fa"
     }
   ],
   "verify": {
@@ -79,5 +85,6 @@
       "src/server.zig: An HTTP method std.http doesn't know (PROPFIND, lowercase get) gets 400 'bad request head' instead of 404",
       "src/server.zig: Per-connection db.open runs journal_mode before busy_timeout, so it can fail with SQLITE_BUSY and the socket closes with no response"
     ]
-  }
+  },
+  "clean_branch": "feat/server-read"
 }
