@@ -1,0 +1,22 @@
+test
++- run test 1 pass, 1 fail (2 total)
+error: 'server-read_repro_r1_2.test.AC-6, AC-9: a second '?' inside the query is part of a value, not a separator' failed:
+       expected 400, found 404
+       /home/agent/.local/zig/lib/std/testing.zig:93:17: 0x1266b5a in expectEqualInner__func_953 (std.zig)
+                       return error.TestExpectedEqual;
+                       ^
+       /home/agent/.local/zig/lib/std/testing.zig:57:5: 0x126704d in expectEqual (server-read_repro_r1_2.zig)
+           return expectEqualInner(T, expected, actual);
+           ^
+       /home/arrow/Development/postilla-backend/.claude/worktrees/feature-server-read-base/test/server-read_repro_r1_2.zig:11:5: 0x12670a6 in expectReason (server-read_repro_r1_2.zig)
+           try expectEqual(status, r.status);
+           ^
+       /home/arrow/Development/postilla-backend/.claude/worktrees/feature-server-read-base/test/server-read_repro_r1_2.zig:33:5: 0x12674b8 in test.AC-6, AC-9: a second '?' inside the query is part of a value, not a separator (server-read_repro_r1_2.zig)
+           try expectReason(&h, "GET /stories?lang=it?since=5 HTTP/1.1", 400, "lang: unknown id 'it?since=5'\n");
+           ^
+failed command: ./.zig-cache/o/73f6c4cd969821fad4a896ab1d337a7d/test --cache-dir=./.zig-cache --seed=0xa6d5647a --listen=-
+
+Build Summary: 2/4 steps succeeded (1 failed); 1/2 tests passed (1 failed)
+test transitive failure
++- run test 1 pass, 1 fail (2 total)
+

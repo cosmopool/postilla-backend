@@ -14,6 +14,10 @@
   path logs `sqlite3_errmsg` and returns `error.Sqlite`, like `exec`.
 - `test/harness.zig` — `Harness.sql(text)`: runs SQL on the harness's temp database
   through `server.db`, for seeding `story` rows and hand edits.
+- `build.zig` — `b.dependOnDirectoryContents(b.path("test"))`, so Zig 0.17's cached configure
+  phase reruns when a file is added to `test/` (found during stage 1: new test files,
+  including stage 2's reproductions, were skipped until the cache was cleared). Added
+  after approval, with the owner's OK; already committed as 61fa368.
 - `docs/specification.md` — Database: the `user_version` stamp and the refusal of a newer
   schema; Process: the idle timeout and the `400 bad request head` rule; Error bodies: the
   exact reasons for `since` and `lang`.

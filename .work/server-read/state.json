@@ -3,10 +3,10 @@
   "branch": "work/server-read",
   "jira": "",
   "base": "f62dd56c983ff2e0aaf4f647adfa779ff52e43f3",
-  "stage": "build",
-  "step": "done",
-  "round": null,
-  "commit": "61fa36854d697ffb1788d49338176218e49aeb34",
+  "stage": "verify",
+  "step": "round-1",
+  "round": 1,
+  "commit": "405c11bd81b0c5e937b1e25bbb0e1515e4ccccab",
   "budget": {
     "added": 350,
     "newFiles": 1,
@@ -44,6 +44,22 @@
       "step": "done",
       "round": null,
       "commit": "61fa36854d697ffb1788d49338176218e49aeb34"
+    },
+    {
+      "stage": "verify",
+      "step": "round-1",
+      "round": 1,
+      "commit": "405c11bd81b0c5e937b1e25bbb0e1515e4ccccab"
     }
-  ]
+  ],
+  "verify": {
+    "round": 1,
+    "newCritical": 0,
+    "seen": [
+      "src/server.zig: Per-connection db.open runs PRAGMA journal_mode before busy_timeout, so it can fail with SQLITE_BUSY and the connection drops with no response",
+      "src/server.zig: Path is cut at the first '&' as well as '?', so /genres&x answers 200 instead of 404",
+      "src/server.zig: An HTTP method std.http doesn't know (PROPFIND, lowercase get) gets 400 'bad request head' instead of 404",
+      "src/server.zig: Per-connection db.open runs journal_mode before busy_timeout, so it can fail with SQLITE_BUSY and the socket closes with no response"
+    ]
+  }
 }

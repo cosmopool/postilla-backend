@@ -1,0 +1,21 @@
+test
++- run test 0 pass, 1 fail (1 total)
+error: 'server-read_repro_r1_3.test.AC-10: a well-formed request with a method other than GET (PROPFIND, lowercase get) gets 404 not found' failed:
+       /home/arrow/Development/postilla-backend/.claude/worktrees/feature-server-read-base/test/harness.zig:70:67: 0x1265b78 in parse (harness.zig)
+               const split = std.mem.indexOf(u8, raw, "\r\n\r\n") orelse return error.NoHead;
+                                                                         ^
+       /home/arrow/Development/postilla-backend/.claude/worktrees/feature-server-read-base/test/harness.zig:58:9: 0x1266830 in send (harness.zig)
+               return Response.parse(buf[0..n]);
+               ^
+       /home/arrow/Development/postilla-backend/.claude/worktrees/feature-server-read-base/test/server-read_repro_r1_3.zig:10:15: 0x1266f55 in expectNotFound (server-read_repro_r1_3.zig)
+           const r = try h.send(head, "", &buf);
+                     ^
+       /home/arrow/Development/postilla-backend/.claude/worktrees/feature-server-read-base/test/server-read_repro_r1_3.zig:22:5: 0x1267446 in test.AC-10: a well-formed request with a method other than GET (PROPFIND, lowercase get) gets 404 not found (server-read_repro_r1_3.zig)
+           try expectNotFound(&h, "PROPFIND /genres HTTP/1.1");
+           ^
+failed command: ./.zig-cache/o/d4976b2bbc1126f0b832fad2a1707cbb/test --cache-dir=./.zig-cache --seed=0x57bae6af --listen=-
+
+Build Summary: 2/4 steps succeeded (1 failed); 0/1 tests passed (1 failed)
+test transitive failure
++- run test 0 pass, 1 fail (1 total)
+

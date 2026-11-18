@@ -1,0 +1,19 @@
+test
++- run test 0 pass, 1 fail (1 total)
+error: 'server-read_repro_r1_1.test.AC-5, AC-F3: concurrent feed requests on fresh connections are all answered, none dropped with no response' failed:
+       expected 3200, found 0
+       /home/agent/.local/zig/lib/std/testing.zig:93:17: 0x1265b44 in expectEqualInner__func_951 (std.zig)
+                       return error.TestExpectedEqual;
+                       ^
+       /home/agent/.local/zig/lib/std/testing.zig:57:5: 0x1265fbe in expectEqual (server-read_repro_r1_1.zig)
+           return expectEqualInner(T, expected, actual);
+           ^
+       /home/arrow/Development/postilla-backend/.claude/worktrees/feature-server-read-base/test/server-read_repro_r1_1.zig:39:5: 0x126604e in test.AC-5, AC-F3: concurrent feed requests on fresh connections are all answered, none dropped with no response (server-read_repro_r1_1.zig)
+           try expectEqual(clients * requests, answered.load(.monotonic));
+           ^
+failed command: ./.zig-cache/o/1d410d1970a1a9444f0373e9060a5d27/test --cache-dir=./.zig-cache --seed=0x671d8165 --listen=-
+
+Build Summary: 2/4 steps succeeded (1 failed); 0/1 tests passed (1 failed)
+test transitive failure
++- run test 0 pass, 1 fail (1 total)
+
