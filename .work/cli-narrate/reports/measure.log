@@ -1,0 +1,16 @@
+1/1 cli-narrate_repro_r1_1.test.repro: a Speechify word mark with a negative start_time fails the try instead of crashing narrate...narrate: exit 1: it: narration: a mark's time is out of range
+
+OK
+All 1 tests passed.
+1/11 cli_narrate.test.AC-1, AC-2: a story whose Italian has 2 paragraphs is narrated in one Speechify stream into it.opus, it.flac and the audio of story.json, one time per sentence from its first word to its last...OK
+2/11 cli_narrate.test.AC-3: a sentence without marks gets [e, e] at the previous sentence's end, [0, 0] when it is the first, and a last mark past the audio ends at audio_ms...OK
+3/11 cli_narrate.test.AC-4: narrating a narrated folder again replaces it.opus, it.flac and audio with the new stream's...OK
+4/11 cli_narrate.test.AC-5, AC-6: with it and pt-BR in the story, only it (target 1) is narrated, in one request, and publish then finds the narration current...OK
+5/11 cli_narrate.test.AC-7: a stream with speech.error is tried again at once and the good one is kept; three of them stop the command naming it: narration and the message, writing nothing...OK
+6/11 cli_narrate.test.AC-8: a stream closed before speech.done three times stops the command naming it: narration, writing nothing...OK
+7/11 cli_narrate.test.AC-9: narrate without a folder, or with an extra argument, exits 2 printing the usage and sends nothing...OK
+8/11 cli_narrate.test.AC-F1, AC-F2: Speechify answering 401 stops the command after one request naming it and the status; 503 on every try stops it after 4 tries; neither writes anything...OK
+9/11 cli_narrate.test.AC-F3: a POSTILLA_SPEECHIFY_URL without :// exits 1 naming the variable before any request...OK
+10/11 cli_narrate.test.AC-F4: a read-only story folder exits 1 naming the audio file it couldn't write, and story.json is unchanged...OK
+11/11 cli_narrate.test.AC-10: an answer that keeps arriving runs past idle_timeout_ms on its first try, while a head followed by silence fails the try and the call retries...OK
+All 11 tests passed.
