@@ -1,0 +1,240 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index 882e7a0..78450af 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -2,7 +2,7 @@
+ 
+ > Philosophy based on "Codin' Dirty" by Carson Gross — important things should be big, unimportant things should be little. Minimize the total number of functions, structs, files, layers, and concepts in the system. Less code and fewer abstractions beat "purist" decomposition.
+ 
+-The backend is Zig (0.17, the `minimum_zig_version` in `build.zig.zon`) with vendored C libraries (SQLite, libopus, libopusenc, libFLAC). The design lives in [docs/specification.md](docs/specification.md).
++The backend is Zig (0.17, the `minimum_zig_version` in `build.zig.zon`) with vendored C libraries (SQLite, libopus 1.6.1, libopusenc 0.3, libFLAC 1.5.0). The design lives in [docs/specification.md](docs/specification.md).
+ 
+ ## Data and performance
+ - Organize code around data and transformations.
+diff --git a/build.zig b/build.zig
+index 39f14d9..c53dec7 100644
+--- a/build.zig
++++ b/build.zig
+@@ -36,6 +36,44 @@ pub fn build(b: *std.Build) void {
+     c.addIncludePath(sqlite_dir);
+     const c_mod = c.createModule();
+ 
++    // `audio`: libopus (the float build, no intrinsics), libopusenc over it, and libFLAC
++    // without Ogg, compiled from source. opus's files are the lists its own Makefile builds.
++    const opus_dep = b.lazyDependency("opus", .{}) orelse return;
++    const opusenc_dir = (b.lazyDependency("opusenc", .{}) orelse return).path("");
++    const flac_dir = (b.lazyDependency("flac", .{}) orelse return).path("");
++    const opus_dir = opus_dep.path("");
++    var opus_files: std.ArrayList([]const u8) = .empty;
++    inline for (.{ .{ "celt", "CELT_SOURCES" }, .{ "silk", "SILK_SOURCES" }, .{ "silk", "SILK_SOURCES_FLOAT" }, .{ "opus", "OPUS_SOURCES" }, .{ "opus", "OPUS_SOURCES_FLOAT" } }) |list| {
++        const mk = opus_dep.builder.root.root_dir.handle.readFileAlloc(b.graph.io, list[0] ++ "_sources.mk", b.allocator, .unlimited) catch
++            @panic("cannot read opus's source lists");
++        var lines = std.mem.splitScalar(u8, mk[std.mem.indexOf(u8, mk, list[1] ++ " = \\\n").?..], '\n');
++        _ = lines.next();
++        while (lines.next()) |line| {
++            opus_files.append(b.allocator, std.mem.trimEnd(u8, line, " \\")) catch @panic("OOM");
++            if (!std.mem.endsWith(u8, line, "\\")) break;
++        }
++    }
++    const audio_c = b.addTranslateC(.{ .root_source_file = b.path("src/audio.h"), .target = target, .optimize = optimize });
++    const audio = b.createModule(.{ .root_source_file = b.path("src/audio.zig"), .target = target, .optimize = optimize, .link_libc = true });
++    for ([_]std.Build.LazyPath{ opus_dir.path(b, "include"), opusenc_dir.path(b, "include"), flac_dir.path(b, "include") }) |dir| {
++        audio_c.addIncludePath(dir);
++        audio.addIncludePath(dir);
++    }
++    audio.addImport("c", audio_c.createModule());
++    for ([_][]const u8{ "celt", "silk", "silk/float" }) |dir| audio.addIncludePath(opus_dir.path(b, dir));
++    audio.addIncludePath(flac_dir.path(b, "src/libFLAC/include"));
++    audio.addCSourceFiles(.{ .root = opus_dir, .files = opus_files.items, .flags = &.{ "-DOPUS_BUILD", "-DVAR_ARRAYS", "-DHAVE_LRINTF", "-DPACKAGE_VERSION=\"1.6.1\"" } });
++    audio.addCSourceFiles(.{
++        .root = opusenc_dir.path(b, "src"),
++        .files = &.{ "ogg_packer.c", "opus_header.c", "opusenc.c", "picture.c", "resample.c", "unicode_support.c" },
++        .flags = &.{ "-DOUTSIDE_SPEEX", "-DRANDOM_PREFIX=libopusenc", "-DPACKAGE_NAME=\"libopusenc\"", "-DPACKAGE_VERSION=\"0.3\"" },
++    });
++    audio.addCSourceFiles(.{
++        .root = flac_dir.path(b, "src/libFLAC"),
++        .files = &.{ "bitmath.c", "bitreader.c", "bitwriter.c", "cpu.c", "crc.c", "fixed.c", "float.c", "format.c", "lpc.c", "md5.c", "memory.c", "stream_decoder.c", "stream_encoder.c", "stream_encoder_framing.c", "window.c" },
++        .flags = &.{ "-DPACKAGE_VERSION=\"1.5.0\"", "-DFLAC__HAS_OGG=0", "-DHAVE_INTTYPES_H", "-DHAVE_LROUND" },
++    });
++
+     const server_mod = module(b, "src/server.zig", target, optimize, c_mod, sqlite_dir);
+     // `tilla` reaches SQLite and the wire types through `server.db` and `server.wire`.
+     const tilla = b.createModule(.{ .root_source_file = b.path("src/tilla.zig"), .imports = &.{
+@@ -95,6 +133,8 @@ pub fn build(b: *std.Build) void {
+                 .{ .name = "cli", .module = cli_mod },
+             },
+         }) });
++        // Only the audio tests link the codecs (and their decoders); the rest stay light.
++        if (std.mem.eql(u8, entry.name, "audio.zig")) t.root_module.addImport("audio", audio);
+         if (coverage) {
+             const run = b.addSystemCommand(&.{ "kcov", "--include-pattern=/src/" });
+             run.addArg("coverage/kcov");
+diff --git a/build.zig.zon b/build.zig.zon
+index 40bb950..cf18aab 100644
+--- a/build.zig.zon
++++ b/build.zig.zon
+@@ -9,6 +9,21 @@
+             .hash = "N-V-__8AALc_rgC04POe18O0LKFRm4ouQpLtL3riscEmWp-Q",
+             .lazy = true,
+         },
++        .opus = .{
++            .url = "https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz",
++            .hash = "N-V-__8AAAmivwH7RvCrZo25NNu0lx2Sw-ogZhmqGXvorlHg",
++            .lazy = true,
++        },
++        .opusenc = .{
++            .url = "https://downloads.xiph.org/releases/opus/libopusenc-0.3.tar.gz",
++            .hash = "N-V-__8AANB3GQBtrxMa9xyAbZBStXmHzjUSq-s95bcFjzuO",
++            .lazy = true,
++        },
++        .flac = .{
++            .url = "https://downloads.xiph.org/releases/flac/flac-1.5.0.tar.xz",
++            .hash = "N-V-__8AAHSrwgDkuwylGkEyZxj-_xKsppp8z8563UYjXs2B",
++            .lazy = true,
++        },
+     },
+     .paths = .{ "build.zig", "build.zig.zon", "src" },
+ }
+diff --git a/docs/specification.md b/docs/specification.md
+index 3be3fde..b443968 100644
+--- a/docs/specification.md
++++ b/docs/specification.md
+@@ -394,7 +394,7 @@ One streamed call narrates one translation: `POST https://api.speechify.ai/v1/au
+ - `model` to `simba-3.5`
+ - `voice_id` to the language's voice: `daniele-agent` for `it`
+ - `language` to `it-IT` for `it`
+-- the highest-quality PCM that Speechify streams
++- `output_format` to `pcm_48000`: the stream answers `audio/L16;rate=48000;channels=1`, headerless 16-bit little-endian mono PCM at 48 kHz
+ 
+ That endpoint takes up to 20,000 spoken characters, which is why `story.json` rule 8 limits the Italian.
+ 
+@@ -407,8 +407,8 @@ The input is the translation's paragraphs joined in reading order. The CLI reads
+ The stream yields three outputs:
+ 
+ - **Sentence times:** each sentence's `start_ms` and `end_ms` run from its first word's `start_time` to its last word's `end_time`. Words are matched to sentences by mapping the marks' character offsets onto the sentences.
+-- **App audio:** the PCM is encoded once to the Ogg Opus `.opus` that tilla.md describes (16 kbps, mono), written as `<lang>.opus`, with vendored libopusenc over vendored libopus. libopusenc writes the Ogg container (headers, pages, pre-skip, end trimming) and resamples to a rate Opus takes, so the CLI writes no container code. `audio_ms` is the PCM's length: its sample count ÷ its sample rate × 1000.
+-- **Master:** the same PCM is also compressed to FLAC with vendored libFLAC, written as `<lang>.flac`. It is a lossless copy kept for re-encoding later. The app never downloads it.
++- **App audio:** the PCM is encoded once to the Ogg Opus `.opus` that tilla.md describes (16 kbps, mono), written as `<lang>.opus`, with vendored libopusenc over vendored libopus. libopusenc writes the Ogg container (headers, pages, pre-skip, end trimming) and resamples to a rate Opus takes, so the CLI writes no container code. The encoder runs at 16,000 bit/s VBR, `OPUS_SIGNAL_VOICE`, complexity 10, with the Ogg serial number fixed at 1, so the same PCM always gives the same `.opus` and the same `opus_sha256`; OpusHead's input rate is the PCM's. `audio_ms` is the PCM's length: its sample count ÷ its sample rate × 1000.
++- **Master:** the same PCM is also compressed to FLAC with vendored libFLAC, written as `<lang>.flac`. It is a lossless copy kept for re-encoding later: compression level 8, with the MD5 signature, deterministic too. The app never downloads it.
+ 
+ The times, `audio_ms` and the sha256 of the input text go to the translation's `audio` in `story.json`. Listen to the `.opus` before publishing.
+ 
+@@ -541,7 +541,7 @@ Everything comes from env, read and checked once at startup. A missing required
+ - SQLite is the amalgamation (3.53.2), a `build.zig.zon` dependency by URL and hash, compiled in multi-thread mode (`SQLITE_THREADSAFE=2`): every thread opens its own connection, and no connection is shared. Both executables link it: the server for `postilla.db`, the CLI to read `dict.db`.
+ - **`postilla-server`:** every connection runs as its own concurrent task on `std.Io.Threaded`, so one OS thread per connection, on `std.http.Server`. It closes a connection after a response when the request isn't keep-alive, and after 30 s with no request. A malformed request head, or one over the 8 KiB head buffer, gets a 400 `bad request head` and the connection closes. Each connection opens its own SQLite connection; the database runs in WAL mode (`synchronous = NORMAL`) with a 5 s busy timeout, so readers never wait on a publish and a second writer waits for the first instead of failing. It makes no outbound calls.
+ - **`words`:** `src/words.zig`, the word rule, the normalization and the lookup chain ([tilla.md, Words](tilla.md#words)), with no dependencies. `build.zig` exports it as a module, so postilla-content imports the same code through a `build.zig.zon` dependency on this repo; SQLite is a lazy dependency, so importing `words` doesn't fetch it. It exports `split(text, out)` (the word spans), `normalize(text, out)` and `lookupKeys(word, buf, keys)`; callers size the buffers (`out.len >= text.len`, `buf.len >= 2 * word.len`), and nothing allocates. `zig build dart` writes the app's normalization table, `normalize` and `lookupKeys` (`zig-out/dart/words_norm.dart`) from the same source; `zig build test` checks that file with `dart`, so it needs the Dart SDK on the PATH.
+-- **`postilla`:** one process per command, single-threaded. It vendors libopus, libopusenc and libFLAC, makes HTTPS client calls to OpenCode, Speechify, R2 and the server, and signs its R2 uploads and downloads with SigV4.
++- **`postilla`:** one process per command, single-threaded. It vendors libopus 1.6.1 (the float build), libopusenc 0.3 and libFLAC 1.5.0 (without Ogg), compiled from source by `build.zig` into the `audio` module (`src/audio.zig`), makes HTTPS client calls to OpenCode, Speechify, R2 and the server, and signs its R2 uploads and downloads with SigV4.
+ 
+ ## Deployment
+ 
+@@ -559,5 +559,4 @@ OpenCode, Speechify and R2 are system boundaries. Tests point their base URLs at
+ 
+ ## Open
+ 
+-- Which PCM sample rate the streaming endpoint actually delivers. The docs list `pcm_48000` but default streaming to 24 kHz. The first real call settles it.
+ - Where the app gets the bucket's public base URL. Only the manifest URL is built into the app (ARQ-06), so the manifest could carry it.
+diff --git a/docs/tilla.md b/docs/tilla.md
+index 108982d..f1c9d5d 100644
+--- a/docs/tilla.md
++++ b/docs/tilla.md
+@@ -127,4 +127,4 @@ The writer makes rules 2, 5, 6 and 8 hold by construction: it refuses, before wr
+ 
+ ## Audio
+ 
+-The `.opus` is Ogg Opus, 16 kbps, mono, encoded once from the narration's PCM; sentence times are in milliseconds from the start of the decoded audio. A reader checks a downloaded `.opus` against `opus_size` and `opus_sha256`.
++The `.opus` is Ogg Opus, 16 kbps, mono, encoded once from the narration's PCM, the same bytes for the same PCM; OpusHead's input rate is the PCM's (48 kHz from Speechify); sentence times are in milliseconds from the start of the decoded audio. A reader checks a downloaded `.opus` against `opus_size` and `opus_sha256`.
+diff --git a/src/audio.h b/src/audio.h
+new file mode 100644
+index 0000000..d6b3750
+--- /dev/null
++++ b/src/audio.h
+@@ -0,0 +1,2 @@
++#include <opusenc.h>
++#include <FLAC/stream_encoder.h>
+diff --git a/src/audio.zig b/src/audio.zig
+new file mode 100644
+index 0000000..3c608fb
+--- /dev/null
++++ b/src/audio.zig
+@@ -0,0 +1,80 @@
++//! 16-bit mono PCM in memory to the narration's two files in memory: the Ogg Opus `.opus`
++//! for the app, through libopusenc over libopus, and the lossless `.flac` master, through
++//! libFLAC. The same samples and rate always give the same bytes.
++
++const std = @import("std");
++const c = @import("c");
++
++pub const Encoded = struct {
++    opus: []u8 = &.{},
++    flac: []u8 = &.{},
++    /// The PCM's length: its sample count ÷ its rate × 1000, rounded down.
++    audio_ms: u32 = 0,
++};
++
++/// Encodes `samples` at `rate` Hz to 16 kbit/s voice Opus (complexity 10, Ogg serial 1) and
++/// to level 8 FLAC. Both files are allocated in `a`.
++pub fn encode(a: std.mem.Allocator, samples: []const i16, rate: u32) !Encoded {
++    if (samples.len == 0) return error.NoAudio;
++    if (rate < 8000 or rate > 96000) return error.UnsupportedRate;
++
++    // libopusenc's pull API keeps the pages until they are copied out after the drain.
++    var opus: std.ArrayList(u8) = .empty;
++    errdefer opus.deinit(a);
++    {
++        const comments = c.ope_comments_create() orelse return error.OpusEncode;
++        defer c.ope_comments_destroy(comments);
++        const enc = c.ope_encoder_create_pull(comments, @intCast(rate), 1, 0, null) orelse return error.OpusEncode;
++        defer c.ope_encoder_destroy(enc);
++        _ = c.ope_encoder_ctl(enc, c.OPE_SET_SERIALNO_REQUEST, @as(c_int, 1));
++        _ = c.ope_encoder_ctl(enc, c.OPUS_SET_BITRATE_REQUEST, @as(c_int, 16000));
++        _ = c.ope_encoder_ctl(enc, c.OPUS_SET_SIGNAL_REQUEST, @as(c_int, c.OPUS_SIGNAL_VOICE));
++        _ = c.ope_encoder_ctl(enc, c.OPUS_SET_COMPLEXITY_REQUEST, @as(c_int, 10));
++        if (c.ope_encoder_write(enc, samples.ptr, @intCast(samples.len)) != c.OPE_OK or c.ope_encoder_drain(enc) != c.OPE_OK)
++            return error.OpusEncode;
++        var page: [*c]u8 = undefined;
++        var len: i32 = 0;
++        while (c.ope_encoder_get_page(enc, &page, &len, 0) == 1) try opus.appendSlice(a, page[0..@intCast(len)]);
++    }
++
++    var flac: std.Io.Writer.Allocating = .init(a);
++    defer flac.deinit();
++    {
++        const enc = c.FLAC__stream_encoder_new() orelse return error.FlacEncode;
++        defer c.FLAC__stream_encoder_delete(enc);
++        _ = c.FLAC__stream_encoder_set_channels(enc, 1);
++        _ = c.FLAC__stream_encoder_set_bits_per_sample(enc, 16);
++        _ = c.FLAC__stream_encoder_set_sample_rate(enc, rate);
++        _ = c.FLAC__stream_encoder_set_compression_level(enc, 8);
++        _ = c.FLAC__stream_encoder_set_total_samples_estimate(enc, samples.len);
++        var ok = c.FLAC__stream_encoder_init_stream(enc, writeFlac, null, null, setMd5, &flac) == c.FLAC__STREAM_ENCODER_INIT_STATUS_OK;
++        var block: [4096]i32 = undefined;
++        var chunks = std.mem.window(i16, samples, block.len, block.len);
++        while (ok) {
++            const chunk = chunks.next() orelse break;
++            for (chunk, block[0..chunk.len]) |s, *d| d.* = s;
++            ok = c.FLAC__stream_encoder_process_interleaved(enc, &block, @intCast(chunk.len)) != 0;
++        }
++        // The write callback fails only when `a` does; libFLAC calls that a client error.
++        if (!ok or c.FLAC__stream_encoder_finish(enc) == 0)
++            return if (c.FLAC__stream_encoder_get_state(enc) == c.FLAC__STREAM_ENCODER_CLIENT_ERROR) error.OutOfMemory else error.FlacEncode;
++    }
++
++    const flac_bytes = try flac.toOwnedSlice();
++    errdefer a.free(flac_bytes);
++    return .{ .opus = try opus.toOwnedSlice(a), .flac = flac_bytes, .audio_ms = @intCast(samples.len * 1000 / rate) };
++}
++
++fn writeFlac(_: ?*const c.FLAC__StreamEncoder, buffer: [*c]const u8, bytes: usize, _: u32, _: u32, client: ?*anyopaque) callconv(.c) c.FLAC__StreamEncoderWriteStatus {
++    const out: *std.Io.Writer.Allocating = @ptrCast(@alignCast(client));
++    out.writer.writeAll(buffer[0..bytes]) catch return c.FLAC__STREAM_ENCODER_WRITE_STATUS_FATAL_ERROR;
++    return c.FLAC__STREAM_ENCODER_WRITE_STATUS_OK;
++}
++
++/// With no seek callback libFLAC can't rewrite STREAMINFO at the end, so the MD5 it knows
++/// only then goes into the bytes already written: after `fLaC`, the block header and the
++/// first 18 bytes of STREAMINFO.
++fn setMd5(_: ?*const c.FLAC__StreamEncoder, metadata: [*c]const c.FLAC__StreamMetadata, client: ?*anyopaque) callconv(.c) void {
++    const out: *std.Io.Writer.Allocating = @ptrCast(@alignCast(client));
++    out.written()[26..42].* = metadata.*.data.stream_info.md5sum;
++}
