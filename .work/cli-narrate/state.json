@@ -3,10 +3,10 @@
   "branch": "work/cli-narrate",
   "jira": "",
   "base": "2be599996f7a0a49b9be79f0e591827ca388a745",
-  "stage": "open",
-  "step": "approved",
+  "stage": "build",
+  "step": "tests",
   "round": null,
-  "commit": "2be599996f7a0a49b9be79f0e591827ca388a745",
+  "commit": "93494ef8e269257ec0a7aa6c3aa4a228554c2b79",
   "budget": {
     "added": 300,
     "newFiles": 0,
@@ -20,6 +20,12 @@
       "step": "approved",
       "round": null,
       "commit": "2be599996f7a0a49b9be79f0e591827ca388a745"
+    },
+    {
+      "stage": "build",
+      "step": "tests",
+      "round": null,
+      "commit": "93494ef8e269257ec0a7aa6c3aa4a228554c2b79"
     }
   ]
 }
