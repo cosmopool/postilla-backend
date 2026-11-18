@@ -481,3 +481,18 @@ The feature: the worker picks the lemma each ambiguous word has in its sentence,
   - **An Italian POS tagger and lemmatizer:** a dedicated model, deterministic for a given version and usually very accurate on standard prose, but a Python/ML stack the Zig backend would run as a sidecar service.
 - **Storing the pick:** as the lemma's text, `word` and `pos` (*portare* + `verbo`), not `entry.id`, because ids change with every `dict.db` build (ARQ-35, [CONTRACT.md](CONTRACT.md)) and `(word, pos)` names an entry across builds. Only ambiguous words carry one; the app falls back to the form lookup when the pair isn't found.
 - **Then:** `band_words` takes the picked lemma's band instead of the most common band, and the authoring app shows the picks at `review` so they can be corrected.
+
+### Infrastructure as code
+
+Today the pieces [Deployment](specification.md#deployment) needs are set up by hand: the VPS, the public story bucket and the private Litestream bucket in R2, an R2 API token per bucket (the CLI's for the story bucket, Litestream's for the backup bucket), and the DNS record Caddy serves. A small Terraform configuration would make them reproducible, so rebuilding the server or adding a second environment is one `terraform apply` instead of a checklist.
+
+Proposed:
+
+- **Scope:** the Cloudflare provider for the two R2 buckets, their per-bucket tokens and the DNS record; the VPS host's provider for the server itself. The binary, its systemd unit, Caddy's config and Litestream's stay as they are, installed by a cloud-init script or by hand.
+- **Not Kubernetes:** `postilla.db` is one SQLite file with one writer, and the cursor rule relies on its write lock, so the server runs as a single process on one VPS. A cluster adds nothing at this size.
+
+Still open:
+
+1. Which VPS host, which decides the second provider.
+2. Where the Terraform state lives. It holds the R2 tokens, so it must not sit in the public bucket: a private R2 bucket as an S3 backend, or a state service.
+3. Whether the CLI's and the content build's R2 tokens are managed here too, or stay created by hand.
