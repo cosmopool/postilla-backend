@@ -1,0 +1,33 @@
+1/1 cli-translate_repro_r1_1.test.repro: a DeepSeek reply with an empty sentence is never written, so story.json stays valid and a later translate --redo pt-BR still runs...first translate: exit 1: pt-BR: paragraph 0: empty sentence
+
+pt-BR written with an empty subtitle: false
+translate --redo pt-BR: exit 1: pt-BR: paragraph 0: empty sentence
+
+OK
+All 1 tests passed.
+1/1 cli-translate_repro_r1_2.test.repro: a DeepSeek reply with an empty story sentence is never written, so story.json stays valid and a later translate --redo pt-BR still runs...first translate: exit 1: pt-BR: paragraph 1: empty sentence
+
+pt-BR written with an empty sentence: false
+translate --redo pt-BR: exit 1: pt-BR: paragraph 1: empty sentence
+
+OK
+All 1 tests passed.
+1/1 cli-translate_repro_r1_3.test.repro: a Jev reply with P(none) NaN is not a pass, so translate without --force exits non-zero and writes no pt-BR...translate: exit 1: moderation: rejected, none nan below 0.9 (homophobic 0, racist 0.01, sexist 0, religious 0, other_hate 0.01): racist
+
+pt-BR written: false
+OK
+All 1 tests passed.
+1/13 cli_translate.test.AC-1, AC-2, AC-3: a story with only the Italian is moderated by Jev and translated into pt-BR paragraph by paragraph, title first; a rerun sends nothing and leaves story.json byte for byte...OK
+2/13 cli_translate.test.AC-3: a story whose translations already has pt-BR, written by hand, exits 0 without moderating, and story.json is byte for byte unchanged...OK
+3/13 cli_translate.test.AC-4, AC-5: a text Jev flags is rejected, printing the six scores and the top option, with the scores written and nothing translated; --force moderates again and translates with forced true...OK
+4/13 cli_translate.test.AC-6, AC-5: POSTILLA_MODERATION_THRESHOLD lowers the bar so P(none) 0.5 passes; at the default 0.9 a P(none) of exactly 0.9 passes, with or without --force, and forced stays false...OK
+5/13 cli_translate.test.AC-7: --redo pt-BR replaces a hand-edited pt-BR with DeepSeek's translation, back after the Italian; --redo of a language without translate 1 exits 1 sending no OpenCode request...OK
+6/13 cli_translate.test.AC-8: a paragraph whose reply has the wrong sentence count, isn't JSON or is fenced is tried again, up to 3 tries; after a third bad reply the command stops naming the language and paragraph, keeping the scores and writing no pt-BR...OK
+7/13 cli_translate.test.AC-9: a story.json that breaks a rule exits 1 naming it, sends no OpenCode request and leaves story.json as it was...OK
+8/13 cli_translate.test.AC-10: no folder, an unknown flag, a repeated flag or --redo without a language exits 2 printing the usage, sending no OpenCode request...OK
+9/13 cli_translate.test.AC-F1: Jev answering 503 on every try stops the command after 4 tries naming moderation and the status, with no DeepSeek request and story.json unchanged...OK
+10/13 cli_translate.test.AC-F2: DeepSeek answering 401 stops the command after one request naming pt-BR and the status, keeping the moderation scores and writing no pt-BR...OK
+11/13 cli_translate.test.AC-F3: a Jev reply that isn't the expected JSON stops the command naming moderation, with no DeepSeek request and story.json unchanged...OK
+12/13 cli_translate.test.AC-F4: a POSTILLA_MODERATION_THRESHOLD that isn't a number from 0 to 1, or a POSTILLA_OPENCODE_URL without ://, exits 1 naming the variable before any request...OK
+13/13 cli_translate.test.AC-F5: a story folder where story.json can't be replaced exits 1 naming story.json, and the file is unchanged...OK
+All 13 tests passed.
