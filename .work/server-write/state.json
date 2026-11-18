@@ -3,17 +3,29 @@
   "branch": "work/server-write",
   "jira": "",
   "base": "c32b62c41cae86e171e2d6315951797f9e4e596b",
-  "stage": "bench",
-  "step": "done",
+  "stage": "minimize",
+  "step": "auto",
   "round": null,
-  "commit": "f700cb305caa7422165080b1adbd4c904b4e80e0",
+  "commit": "d7c6abba13156c55ce02f9433edb0c8f6afcaee6",
   "budget": {
     "added": 300,
     "newFiles": 0,
     "newSymbols": 0
   },
   "api": "settled",
-  "pending": null,
+  "pending": {
+    "kind": "deletion-queue",
+    "queue": [
+      {
+        "file": "src/server.zig",
+        "line": 251,
+        "construct": "w.bytes(&(try wire.Lang.fromText(st.bytes(1))).bytes);",
+        "class": "defensive",
+        "reason": "The feed now re-validates a `lang` value it reads back from its own `story` table. That column has a foreign key to language(id), and language(id) is CHECKed to at most 8 bytes. The only new failure fromText adds is an empty or non-printable language id written into `language` by hand. No AC asks for this: AC-12 asks only for identical bytes. If it fails, error.BadLang falls through route's `else => return` and the connection closes with no response. The code it replaced copied the bytes and zero-padded them, with no error path.",
+        "riskIfWrong": "If a hand-edited `language` row holds an id that is empty, contains a space, or is not ASCII, the feed would emit that id zero-padded instead of dropping the connection. For a length of at most 8 bytes that is what the pre-feature code did."
+      }
+    ]
+  },
   "history": [
     {
       "stage": "open",
@@ -50,6 +62,12 @@
       "step": "done",
       "round": null,
       "commit": "f700cb305caa7422165080b1adbd4c904b4e80e0"
+    },
+    {
+      "stage": "minimize",
+      "step": "auto",
+      "round": null,
+      "commit": "d7c6abba13156c55ce02f9433edb0c8f6afcaee6"
     }
   ],
   "verify": {
