@@ -6,6 +6,7 @@ const std = @import("std");
 const Io = std.Io;
 const c = @import("c");
 pub const db = @import("db.zig");
+const wire = @import("wire.zig");
 
 const log = std.log.scoped(.server);
 
@@ -136,7 +137,7 @@ fn connection(io: Io, stream: Io.net.Stream, config: *const Config) Io.Cancelabl
             },
             else => return,
         };
-        route(&request, d) catch |err| switch (err) {
+        route(&request, d, config.author_token) catch |err| switch (err) {
             error.Sqlite => request.respond("", .{ .status = .internal_server_error }) catch return,
             else => return,
         };
@@ -144,45 +145,55 @@ fn connection(io: Io, stream: Io.net.Stream, config: *const Config) Io.Cancelabl
     }
 }
 
-fn route(request: *std.http.Server.Request, d: db.Db) !void {
+fn route(request: *std.http.Server.Request, d: db.Db, token: []const u8) !void {
     const target = request.head.target;
     const q = std.mem.indexOfScalar(u8, target, '?') orelse target.len;
     const path = target[0..q];
     var params = std.mem.splitScalar(u8, target[@min(q + 1, target.len)..], '&');
     if (request.head.method == .GET) {
         if (std.mem.eql(u8, path, "/stories")) return feed(request, d, &params);
-        if (std.mem.eql(u8, path, "/genres")) return list(request, d, "GNRS", "SELECT id, it, pt_br, en FROM genre ORDER BY id");
-        if (std.mem.eql(u8, path, "/tags")) return list(request, d, "TAGS", "SELECT id, it, pt_br, en FROM tag ORDER BY id");
-        if (std.mem.eql(u8, path, "/authors")) return list(request, d, "AUTH", "SELECT id, name FROM author ORDER BY id");
-        if (std.mem.eql(u8, path, "/languages")) return list(request, d, "LANG", "SELECT id, name, target, translate FROM language ORDER BY id");
+        if (std.mem.eql(u8, path, "/genres")) return list(request, d, "GNRS", "SELECT id, it, pt_br, en, count(*) OVER (), 7 + sum(16 + octet_length(id) + octet_length(it) + octet_length(pt_br) + octet_length(en)) OVER () FROM genre ORDER BY id");
+        if (std.mem.eql(u8, path, "/tags")) return list(request, d, "TAGS", "SELECT id, it, pt_br, en, count(*) OVER (), 7 + sum(16 + octet_length(id) + octet_length(it) + octet_length(pt_br) + octet_length(en)) OVER () FROM tag ORDER BY id");
+        if (std.mem.eql(u8, path, "/authors")) return list(request, d, "AUTH", "SELECT id, name, count(*) OVER (), 7 + sum(8 + octet_length(id) + octet_length(name)) OVER () FROM author ORDER BY id");
+        if (std.mem.eql(u8, path, "/languages")) return list(request, d, "LANG", "SELECT id, name, target, translate, count(*) OVER (), 7 + sum(10 + octet_length(id) + octet_length(name)) OVER () FROM language ORDER BY id");
+    }
+    const post = request.head.method == .POST and std.mem.eql(u8, path, "/stories");
+    if (post or request.head.method == .DELETE and std.mem.startsWith(u8, path, "/stories/") and std.mem.indexOfScalar(u8, path[9..], '/') == null) {
+        // A write's connection closes after its answer, so a refused body is never read.
+        request.head.keep_alive = false;
+        var given: []const u8 = "";
+        var headers = request.iterateHeaders();
+        while (headers.next()) |h| given = if (std.ascii.eqlIgnoreCase(h.name, "authorization")) h.value else given;
+        // Digests compare in constant time whatever the lengths; the token is never empty.
+        var digests: [2][32]u8 = undefined;
+        std.crypto.hash.sha2.Sha256.hash(if (std.ascii.startsWithIgnoreCase(given, "bearer ")) given[7..] else "", &digests[0], .{});
+        std.crypto.hash.sha2.Sha256.hash(token, &digests[1], .{});
+        if (!std.crypto.timing_safe.eql([32]u8, digests[0], digests[1])) return request.respond("", .{ .status = .unauthorized });
+        return if (post) publish(request, d) else remove(request, d, path[9..]);
     }
     return reason(request, .not_found, "not found\n");
 }
 
 /// A list body (specification.md, Encoding): the rows of `sql`, each TEXT column as a
-/// `str` and each INTEGER column as a `u8`, after a header whose `count` is set last.
-fn list(request: *std.http.Server.Request, d: db.Db, comptime magic: []const u8, sql: [:0]const u8) !void {
+/// `str` and each INTEGER column as a `u8`, but for the last two: row count, body size.
+fn list(request: *std.http.Server.Request, d: db.Db, magic: *const [4]u8, sql: [:0]const u8) !void {
     const st = try d.prepare(sql);
     const stmt = st.handle;
     defer _ = c.sqlite3_finalize(stmt);
-    var body: std.Io.Writer.Allocating = .init(gpa);
-    defer body.deinit();
-    try body.writer.writeAll(magic ++ "\x01\x00\x00");
-    var count: u16 = 0;
-    while (try st.step()) : (count += 1) {
+    var row = try st.step();
+    const columns = c.sqlite3_column_count(stmt) - 2;
+    const body = try gpa.alloc(u8, if (row) @intCast(c.sqlite3_column_int64(stmt, columns + 1)) else 7);
+    defer gpa.free(body);
+    var w: wire.Writer = .{ .buf = body };
+    w.header(magic);
+    w.int(u16, if (row) @intCast(c.sqlite3_column_int(stmt, columns)) else 0);
+    while (row) : (row = try st.step()) {
         var i: c_int = 0;
-        while (i < c.sqlite3_column_count(stmt)) : (i += 1) {
-            if (c.sqlite3_column_type(stmt, i) == c.SQLITE_INTEGER) {
-                try body.writer.writeByte(@intCast(c.sqlite3_column_int(stmt, i)));
-            } else {
-                const t = st.bytes(i);
-                try body.writer.writeInt(u32, @intCast(t.len), .big);
-                try body.writer.writeAll(t);
-            }
+        while (i < columns) : (i += 1) {
+            if (c.sqlite3_column_type(stmt, i) == c.SQLITE_INTEGER) w.int(u8, @intCast(c.sqlite3_column_int(stmt, i))) else w.str(st.bytes(i));
         }
     }
-    std.mem.writeInt(u16, body.written()[5..7], count, .big);
-    try request.respond(body.written(), .{ .extra_headers = &.{.{ .name = "content-type", .value = "application/octet-stream" }} });
+    try request.respond(w.written(), .{ .extra_headers = &.{.{ .name = "content-type", .value = "application/octet-stream" }} });
 }
 
 /// `GET /stories`: parses `since` and `lang`, then runs one query on the `cursor` index.
@@ -230,22 +241,96 @@ fn feed(request: *std.http.Server.Request, d: db.Db, params: *std.mem.SplitItera
     for (ids[0..n], 2..) |id, i| _ = c.sqlite3_bind_text(stmt, @intCast(i), id.ptr, @intCast(id.len), null);
     var row = try st.step();
     const count: u32 = if (row) @intCast(c.sqlite3_column_int64(stmt, 5)) else 0;
-    var body: std.Io.Writer.Allocating = try .initCapacity(gpa, 9 + 61 * @as(usize, count));
-    defer body.deinit();
-    const w = &body.writer;
-    try w.writeAll("FEED\x01");
-    try w.writeInt(u32, count, .big);
+    const body = try gpa.alloc(u8, 9 + 61 * @as(usize, count));
+    defer gpa.free(body);
+    var w: wire.Writer = .{ .buf = body };
+    w.header("FEED");
+    w.int(u32, count);
     while (row) : (row = try st.step()) {
-        try w.writeAll(st.bytes(0));
-        const l = st.bytes(1);
-        try w.writeAll(l);
-        try w.splatByteAll(0, 8 - l.len);
+        w.bytes(st.bytes(0));
+        w.bytes(&(try wire.Lang.fromText(st.bytes(1))).bytes);
         const change = c.sqlite3_column_int(stmt, 2);
-        try w.writeByte(@intCast(change));
-        if (change == 2) try w.splatByteAll(0, 32) else try w.writeAll(st.bytes(3));
-        try w.writeInt(u32, @intCast(c.sqlite3_column_int64(stmt, 4)), .big);
+        w.int(u8, @intCast(change));
+        w.bytes(if (change == 2) &@as([32]u8, @splat(0)) else st.bytes(3));
+        w.int(u32, @intCast(c.sqlite3_column_int64(stmt, 4)));
     }
-    try request.respond(body.written(), .{ .extra_headers = &.{.{ .name = "content-type", .value = "application/octet-stream" }} });
+    try request.respond(w.written(), .{ .extra_headers = &.{.{ .name = "content-type", .value = "application/octet-stream" }} });
+}
+
+/// `POST /stories`: reads and parses the STRY body, then checks and upserts every
+/// translation in one transaction (specification.md, `POST /stories`).
+fn publish(request: *std.http.Server.Request, d: db.Db) !void {
+    const len = request.head.content_length orelse return reason(request, .bad_request, "body: length required\n");
+    var buf: [22 + 40 * 255]u8 = undefined;
+    if (len > buf.len) return reason(request, .bad_request, "body: too large\n");
+    const body = buf[0..@intCast(len)];
+    try (try request.readerExpectContinue(&.{})).readSliceAll(body);
+    var r: wire.Reader = .{ .buf = body };
+    r.header("STRY") catch |err| return reason(request, .bad_request, if (err == error.BadMagic) "body: bad magic\n" else if (err == error.BadVersion) "body: bad version\n" else "body: wrong length\n");
+    if (body.len < 22 or body.len != 22 + 40 * @as(usize, body[21])) return reason(request, .bad_request, "body: wrong length\n");
+    const n = body[21];
+    var message: [128]u8 = undefined; // names a language id: at most 8 characters
+    var original = false;
+    for (0..n) |i| {
+        const l = body[22 + 40 * i ..][0..8];
+        r = .{ .buf = l };
+        _ = r.lang() catch return reason(request, .bad_request, "lang: empty or not ASCII\n");
+        for (0..i) |j| if (std.mem.eql(u8, body[22 + 40 * j ..][0..8], l))
+            return reason(request, .bad_request, try std.fmt.bufPrint(&message, "lang: repeated id '{s}'\n", .{std.mem.sliceTo(l, 0)}));
+        original = original or std.mem.eql(u8, std.mem.sliceTo(l, 0), "it");
+    }
+    if (!original) return reason(request, .bad_request, "lang: no 'it'\n");
+    try d.exec("BEGIN IMMEDIATE");
+    defer if (c.sqlite3_get_autocommit(d.handle) == 0) d.exec("ROLLBACK") catch {};
+    const rows = try d.prepare("SELECT lang, change FROM story WHERE id = ?1");
+    defer _ = c.sqlite3_finalize(rows.handle);
+    _ = c.sqlite3_bind_blob(rows.handle, 1, body[5..].ptr, 16, null);
+    while (try rows.step()) {
+        if (c.sqlite3_column_int(rows.handle, 1) == 2) return reason(request, .conflict, "story removed\n");
+        for (0..n) |i| {
+            if (std.mem.eql(u8, std.mem.sliceTo(body[22 + 40 * i ..][0..8], 0), rows.bytes(0))) break;
+        } else return reason(request, .conflict, try std.fmt.bufPrint(&message, "{s}: published, missing from body\n", .{rows.bytes(0)}));
+    }
+    // An unknown id selects no `language` row, so it inserts and returns nothing.
+    const upsert = try d.prepare(
+        \\INSERT INTO story (id, lang, sha256, change, cursor)
+        \\SELECT ?1, id, ?3, 1, (SELECT coalesce(max(cursor), 0) + 1 FROM story) FROM language WHERE id = ?2
+        \\ON CONFLICT (id, lang) DO UPDATE SET sha256 = excluded.sha256,
+        \\  cursor = iif(sha256 = excluded.sha256, cursor, excluded.cursor) RETURNING 1
+    );
+    defer _ = c.sqlite3_finalize(upsert.handle);
+    _ = c.sqlite3_bind_blob(upsert.handle, 1, body[5..].ptr, 16, null);
+    for (0..n) |i| {
+        const t = body[22 + 40 * i ..][0..40];
+        const l = std.mem.sliceTo(t[0..8], 0);
+        _ = c.sqlite3_bind_text(upsert.handle, 2, l.ptr, @intCast(l.len), null);
+        _ = c.sqlite3_bind_blob(upsert.handle, 3, t[8..].ptr, 32, null);
+        if (!try upsert.step()) return reason(request, .bad_request, try std.fmt.bufPrint(&message, "lang: unknown id '{s}'\n", .{l}));
+        _ = c.sqlite3_reset(upsert.handle);
+    }
+    try d.exec("COMMIT");
+    try request.respond("", .{});
+}
+
+/// `DELETE /stories/<id>`: gives every translation of the story `change` 2 and a new
+/// cursor, one row at a time, in one transaction. A removed story stays as it is.
+fn remove(request: *std.http.Server.Request, d: db.Db, written: []const u8) !void {
+    const id = wire.StoryId.parse(written) catch return reason(request, .bad_request, "id: not a UUID\n");
+    try d.exec("BEGIN IMMEDIATE");
+    defer if (c.sqlite3_get_autocommit(d.handle) == 0) d.exec("ROLLBACK") catch {};
+    const found = try d.prepare("SELECT 1 FROM story WHERE id = ?1");
+    defer _ = c.sqlite3_finalize(found.handle);
+    _ = c.sqlite3_bind_blob(found.handle, 1, &id.bytes, 16, null);
+    if (!try found.step()) return reason(request, .not_found, "not found\n");
+    const st = try d.prepare(
+        \\UPDATE story SET change = 2, cursor = (SELECT max(cursor) + 1 FROM story)
+        \\WHERE id = ?1 AND lang = (SELECT lang FROM story WHERE id = ?1 AND change = 1) RETURNING 1
+    );
+    defer _ = c.sqlite3_finalize(st.handle);
+    _ = c.sqlite3_bind_blob(st.handle, 1, &id.bytes, 16, null);
+    while (try st.step()) _ = c.sqlite3_reset(st.handle);
+    try d.exec("COMMIT");
+    try request.respond("", .{});
 }
 
 fn reason(request: *std.http.Server.Request, status: std.http.Status, line: []const u8) !void {
