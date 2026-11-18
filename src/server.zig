@@ -214,11 +214,11 @@ fn feed(request: *std.http.Server.Request, d: db.Db, params: *std.mem.SplitItera
         if (id.len == 0) return reason(request, .bad_request, "lang: empty id\n");
         if (n == 4) return reason(request, .bad_request, "lang: more than 4 ids\n");
         for (ids[0..n]) |prev| if (std.mem.eql(u8, id, prev))
-            return reason(request, .bad_request, std.fmt.bufPrint(&message, "lang: duplicate id '{s}'\n", .{id}) catch unreachable);
+            return reason(request, .bad_request, try std.fmt.bufPrint(&message, "lang: duplicate id '{s}'\n", .{id}));
         _ = c.sqlite3_reset(known.handle);
         _ = c.sqlite3_bind_text(known.handle, 1, id.ptr, @intCast(id.len), null);
         if (!try known.step())
-            return reason(request, .bad_request, std.fmt.bufPrint(&message, "lang: unknown id '{s}'\n", .{id}) catch unreachable);
+            return reason(request, .bad_request, try std.fmt.bufPrint(&message, "lang: unknown id '{s}'\n", .{id}));
         ids[n] = id;
     }
 
