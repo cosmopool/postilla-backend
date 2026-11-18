@@ -36,6 +36,9 @@ pub fn build(b: *std.Build) void {
         .imports = &.{.{ .name = "server", .module = server_mod }},
     });
     const test_step = b.step("test", "Run the integration tests");
+    // The configure phase is cached: without this, a file added to test/ is ignored
+    // until the cache is cleared.
+    b.dependOnDirectoryContents(b.path("test"));
     const io = b.graph.io;
     var dir = b.root.root_dir.handle.openDir(io, b.pathJoin(&.{ b.root.sub_path, "test" }), .{ .iterate = true }) catch
         @panic("cannot open test/");
