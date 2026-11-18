@@ -5,7 +5,6 @@ const Harness = harness.Harness;
 const Response = harness.Response;
 
 const io = std.testing.io;
-const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
 const expectEqualSlices = std.testing.expectEqualSlices;
@@ -255,13 +254,12 @@ test "AC-6, AC-7: a STRY that fails the parse or names an unknown language gets 
     };
     for (cases) |case| try expectReason(&h, "POST /stories HTTP/1.1" ++ auth, case[0], 400, case[1]);
 
-    // `lang_count` 0 in a 22-byte body breaks rule 2 and, with no translation, rule 4:
-    // either reason names a broken rule.
+    // `lang_count` 0 in a 22-byte body breaks rule 2 before rule 4: the length reason.
     var buf: [4096]u8 = undefined;
     const r = try h.send("POST /stories HTTP/1.1" ++ auth, head ++ "\x00", &buf);
     try expectEqual(400, r.status);
     try expectEqualStrings("text/plain", r.header("content-type"));
-    try expect(std.mem.eql(u8, r.body, "body: wrong length\n") or std.mem.eql(u8, r.body, "lang: no 'it'\n"));
+    try expectEqualStrings("body: wrong length\n", r.body);
 
     try expectFeed(&h, "lang=it,pt-BR,en", before);
 }
@@ -467,7 +465,31 @@ test "AC-F1: a SQLite failure inside a publish or a removal answers 500 with no 
     }
     try expectFeed(&h, "lang=it,pt-BR", before);
 
+    // The whole `story` table read-only: a one-row publish, a new story and a removal fail too.
     try h.sql(
+        \\CREATE TRIGGER story_all_insert BEFORE INSERT ON story
+        \\  BEGIN SELECT RAISE(ABORT, 'read-only'); END;
+        \\CREATE TRIGGER story_all_update BEFORE UPDATE ON story
+        \\  BEGIN SELECT RAISE(ABORT, 'read-only'); END;
+        \\CREATE TRIGGER story_all_delete BEFORE DELETE ON story
+        \\  BEGIN SELECT RAISE(ABORT, 'read-only'); END;
+    );
+    for ([_]struct { []const u8, []const u8 }{
+        .{ "POST /stories HTTP/1.1" ++ auth, stry(0x22, &.{tr("it", 0xcc)}) },
+        .{ "POST /stories HTTP/1.1" ++ auth, stry(0x44, &.{tr("it", 0xcc)}) },
+        .{ "DELETE /stories/" ++ uuid(0x22) ++ " HTTP/1.1" ++ auth, "" },
+    }) |case| {
+        const r = try h.send(case[0], case[1], &buf);
+        try expectEqual(500, r.status);
+        try expectEqualStrings("0", r.header("content-length"));
+        try expectEqualStrings("", r.body);
+    }
+    try expectFeed(&h, "lang=it,pt-BR", before);
+
+    try h.sql(
+        \\DROP TRIGGER story_all_insert;
+        \\DROP TRIGGER story_all_update;
+        \\DROP TRIGGER story_all_delete;
         \\DROP TRIGGER story_ro_insert;
         \\DROP TRIGGER story_ro_update;
         \\DROP TRIGGER story_ro_delete;

@@ -267,7 +267,7 @@ fn publish(request: *std.http.Server.Request, d: db.Db) !void {
     try (try request.readerExpectContinue(&.{})).readSliceAll(body);
     var r: wire.Reader = .{ .buf = body };
     r.header("STRY") catch |err| return reason(request, .bad_request, if (err == error.BadMagic) "body: bad magic\n" else if (err == error.BadVersion) "body: bad version\n" else "body: wrong length\n");
-    if (body.len < 22 or body.len != 22 + 40 * @as(usize, body[21])) return reason(request, .bad_request, "body: wrong length\n");
+    if (body.len < 22 or body[21] == 0 or body.len != 22 + 40 * @as(usize, body[21])) return reason(request, .bad_request, "body: wrong length\n");
     const n = body[21];
     var message: [128]u8 = undefined; // names a language id: at most 8 characters
     var original = false;
