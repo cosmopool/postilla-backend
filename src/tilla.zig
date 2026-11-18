@@ -47,7 +47,7 @@ pub fn build(arena: std.mem.Allocator, in: Input, dict: [:0]const u8) !struct { 
     var lookup: db.Stmt = .{ .db = dict_db };
     defer _ = c.sqlite3_finalize(lookup.handle);
     if (italian) {
-        dict_db = try db.open(dict);
+        dict_db = try db.openReadOnly(dict);
         // The key's lowest band among the lemmas it leads to by `form`, else by `form_norm`,
         // with band 0 ranked last; NULL when it leads to none.
         lookup = try dict_db.prepare(

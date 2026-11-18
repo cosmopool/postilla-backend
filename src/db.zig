@@ -70,6 +70,16 @@ pub fn open(path: [:0]const u8) error{Sqlite}!Db {
     return d;
 }
 
+/// Opens the database at `path` read-only and sets no pragmas, so reading it never writes
+/// the file or a `-wal` or `-shm` beside it (`dict.db`).
+pub fn openReadOnly(path: [:0]const u8) error{Sqlite}!Db {
+    var d: Db = .{};
+    if (c.sqlite3_open_v2(path.ptr, &d.handle, c.SQLITE_OPEN_READONLY | c.SQLITE_OPEN_NOMUTEX, null) == c.SQLITE_OK) return d;
+    const err = fail(d);
+    d.close();
+    return err;
+}
+
 /// Logs the connection's last error as a warning; the caller decides what the failure
 /// means (a 500, or a startup that stops).
 fn fail(d: Db) error{Sqlite} {

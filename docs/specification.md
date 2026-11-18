@@ -148,7 +148,7 @@ dict/<sha256>.db.gz                         a dictionary build
 - A republish whose audio didn't change gives the same `.opus` and `.flac` keys, so no app downloads them again. The `.tilla` names its `.opus` by `opus_sha256`.
 - The app builds each `.tilla.gz` URL from a feed record's `id`, `lang` and `sha256`, and the `.opus` URL from the `.tilla`.
 - A translation without narration has no `.opus` or `.flac`; its `.tilla` has `audio_ms` 0.
-- The CLI talks to R2's S3 API (`src/r2.zig`) at `https://<account>.r2.cloudflarestorage.com`, path-style (`/<bucket>/<key>`), signing every request with SigV4: region `auto`, service `s3`, signed headers `host;x-amz-content-sha256;x-amz-date`, and `x-amz-content-sha256` set to the body's hex sha256. Every object goes up in one PUT, with `Content-Type` by extension (`.tilla.gz` `application/gzip`, `.opus` `audio/ogg`, `.flac` `audio/flac`), the immutable `Cache-Control` above, and never a `Content-Encoding`: a client would gunzip the `.tilla.gz` and its sha256 check would fail.
+- The CLI talks to R2's S3 API (`src/r2.zig`) at `https://<account>.r2.cloudflarestorage.com` (or `POSTILLA_R2_ENDPOINT` when set), path-style (`/<bucket>/<key>`), signing every request with SigV4: region `auto`, service `s3`, signed headers `host;x-amz-content-sha256;x-amz-date`, and `x-amz-content-sha256` set to the body's hex sha256. Every object goes up in one PUT, with `Content-Type` by extension (`.tilla.gz` `application/gzip`, `.opus` `audio/ogg`, `.flac` `audio/flac`), the immutable `Cache-Control` above, and never a `Content-Encoding`: a client would gunzip the `.tilla.gz` and its sha256 check would fail.
 - `stories/` is written only by `postilla publish`; the server never touches R2. The `dict/` keys belong to the postilla-content build ([content-handoff.md](content-handoff.md#4-publishing-dictdb)); the CLI only reads them, and the build never touches `stories/`.
 
 ## Endpoints
@@ -257,7 +257,7 @@ postilla narrate   <folder>                             narrate every language w
 postilla publish   <folder>                             build the .tilla files, upload to R2, POST /stories
 ```
 
-The CLI reads the lists from the server's public endpoints (`GET /languages`, `GET /genres`, `GET /tags`, `GET /authors` at `POSTILLA_SERVER_URL`), so it never needs `postilla.db`. A command that fails prints one line naming the step and the reason and exits non-zero, leaving `story.json` as it was before that step.
+The CLI reads the lists from the server's public endpoints (`GET /languages`, `GET /genres`, `GET /tags`, `GET /authors` at `POSTILLA_SERVER_URL`), so it never needs `postilla.db`. A command that fails prints one line naming the step and the reason and exits non-zero, leaving `story.json` as it was before that step. The exit code is 0 on success, 1 on any failure and 2 for a usage error (an unknown command or a missing folder).
 
 ### Story folder
 
@@ -306,18 +306,18 @@ stories/pinocchio-1/
 | `translations` | you (`it`), `translate` (the others) | One object per language, keyed by language id |
 | `translations.<lang>.title`, `.subtitle` | | Title and subtitle in that language |
 | `translations.<lang>.paragraphs` | | Paragraphs in reading order, each an array of sentences |
-| `translations.<lang>.audio` | `narrate` | Only for a language with `target` 1, once narrated: `audio_ms`, `text_sha256` (sha256 of the text it narrated) and `times`, one `[start_ms, end_ms]` per sentence, in the shape of `paragraphs` |
+| `translations.<lang>.audio` | `narrate` | Only for a language with `target` 1, once narrated: `audio_ms`, `text_sha256` (sha256 of the text it narrated: the sentences joined by one space within a paragraph and the paragraphs by one newline) and `times`, one `[start_ms, end_ms]` per sentence, in the shape of `paragraphs` |
 
 Every command checks `story.json` before it does anything, and stops on the first rule it breaks (`story.json: genre: empty`):
 
-1. It is valid JSON with the fields above and no others.
+1. It is valid JSON with the fields above and no others (`moderation` and `audio` may be missing).
 2. `title`, `subtitle`, `genre` and `license` are not empty; `license` is ASCII; `level` is 1 to 6; `adapted` is 0 or 1.
 3. `work` is empty exactly when `part` is 0.
 4. No tag is empty or repeated.
 5. `adapted` is 1 only when `author` is not empty.
 6. `translations` has `it`. Its `paragraphs` has at least 1 paragraph, every paragraph at least 1 sentence, and no sentence is empty.
 7. Every other translation has the same paragraph count as `it` and, paragraph by paragraph, the same sentence count; no title, subtitle or sentence is empty.
-8. The Italian is at most 20,000 characters, the narration limit.
+8. The Italian is at most 20,000 characters, the narration limit: Unicode code points of its sentences, the unit Speechify counts in.
 
 ### `postilla translate`
 
@@ -420,15 +420,15 @@ A `.tilla` word is only a span, looked up by form; `dict.db` entry ids change be
 
 #### Building and uploading
 
-The CLI writes one `.tilla` per translation ([tilla.md](tilla.md)): the story-level fields, the translation's title, subtitle and sentences, its word spans by the word rule in tilla.md, `words`, `band_words`, and, for a narrated translation, `audio_ms`, `opus_sha256`, `opus_size` and the sentence times. `tilla.build` (`src/tilla.zig`) writes it, with its gzip and sha256, and refuses the inputs tilla.md lists under Reader rules. For `band_words` it tries each of `words.lookupKeys`'s keys against `form`, then `form_norm`; the first key that finds a row decides the word's band. `dict.db` is opened only for the Italian original; a `dict.db` that can't be opened or read fails the build. The sha256 is taken of the `.tilla` before gzip, so an unchanged translation keeps its sha256, its key and its cursor whatever the gzip library or level does; the gzip needs no fixed settings.
+The CLI writes one `.tilla` per translation ([tilla.md](tilla.md)): the story-level fields, the translation's title, subtitle and sentences, its word spans by the word rule in tilla.md, `words`, `band_words`, and, for a narrated translation, `audio_ms`, `opus_sha256`, `opus_size` and the sentence times. `tilla.build` (`src/tilla.zig`) writes it, with its gzip and sha256, and refuses the inputs tilla.md lists under Reader rules. For `band_words` it tries each of `words.lookupKeys`'s keys against `form`, then `form_norm`; the first key that finds a row decides the word's band. `dict.db` is opened only for the Italian original, read-only and with no pragmas, so the cached build is never written (no `-wal` or `-shm`, and a read-only file works); a `dict.db` that can't be opened or read fails the build, naming the dictionary, before any upload. The sha256 is taken of the `.tilla` before gzip, so an unchanged translation keeps its sha256, its key and its cursor whatever the gzip library or level does; the gzip needs no fixed settings.
 
-It uploads every translation's `.tilla.gz`, `.opus` and `.flac` to R2 under the keys in [Files in R2](#files-in-r2). Keys are content-addressed, so uploading a file that is already there writes the same bytes again. Last, after every file is in R2, it sends `POST /stories` with every translation's `lang` and `sha256`, and the server takes the cursors. A 409 for a missing published translation means the folder lacks a language the story was published in: add it back.
+It uploads every translation's `.tilla.gz`, `.opus` and `.flac` to R2 under the keys in [Files in R2](#files-in-r2). Keys are content-addressed, so uploading a file that is already there writes the same bytes again. They go up one at a time, every `.tilla.gz` first, then the audio, each printed as `uploaded <key>` once R2 has it; an upload that fails after its retries stops the command naming the key, before `POST /stories`. Last, after every file is in R2, it sends `POST /stories` with every translation's `lang` and `sha256`, and the server takes the cursors, then prints `published <id>`. A non-200 answer is printed with the server's reason line and the command exits 1. A 409 for a missing published translation means the folder lacks a language the story was published in: add it back.
 
 ### Retries
 
-Each call to an outside service (OpenCode, Speechify, R2) goes through `outbound.request` (`src/outbound.zig`) and gets 4 tries in all (1 + 3 retries), waiting 5 s, 30 s, then 2 min between them. A network error, a timeout, a 429 or a 5xx counts as a failed try; a `Retry-After` in seconds on a 429 or a 503 replaces the scheduled wait, capped at 2 min. Any other status ends the call at once with that status.
+Each call to an outside service (OpenCode, Speechify, R2) and to the server goes through `outbound.request` (`src/outbound.zig`) and gets 4 tries in all (1 + 3 retries), waiting 5 s, 30 s, then 2 min between them. A network error, a timeout, a 429 or a 5xx counts as a failed try; a `Retry-After` in seconds on a 429 or a 503 replaces the scheduled wait, capped at 2 min. Any other status ends the call at once with that status.
 
-A try times out after 10 s without a connection, or 60 s after connecting without the whole answer. The HTTP client has no timeouts of its own, so the try runs as a task that is canceled when either time runs out.
+Each try sends its own copy of the body, so a try cut mid-send can't change what the next one sends. A try times out after 10 s without a connection, or 60 s after connecting without the whole answer. The HTTP client has no timeouts of its own, so the try runs as a task that is canceled when either time runs out.
 
 After the fourth failed try, the command stops with the step that failed and the error. Rerunning it starts that step over, keeping what `story.json` already holds.
 
@@ -506,7 +506,7 @@ Everything comes from env, read and checked once at startup. A missing required 
 
 ### CLI
 
-[`cli.env.example`](../cli.env.example) lists every variable with its default. Copy it to `cli.env`, which git ignores. The CLI loads `cli.env` from the current directory when it is there; a variable already set in the environment wins over the file.
+[`cli.env.example`](../cli.env.example) lists every variable with its default. Copy it to `cli.env`, which git ignores. The CLI loads `cli.env` from the current directory when it is there; a variable already set in the environment wins over the file. Its lines are `KEY=value`, with no quotes or escapes (the same form as `.env`); blank lines and lines starting with `#` are skipped, and a line without `=` stops the command naming its line number. An empty value counts as missing.
 
 | Variable | Default | What it is |
 |---|---|---|
@@ -515,6 +515,7 @@ Everything comes from env, read and checked once at startup. A missing required 
 | `POSTILLA_OPENCODE_KEY` | required | OpenCode key, for Jev and DeepSeek |
 | `POSTILLA_SPEECHIFY_KEY` | required | Speechify key |
 | `POSTILLA_R2_ACCOUNT_ID` | required | Cloudflare account id |
+| `POSTILLA_R2_ENDPOINT` | `https://<account>.r2.cloudflarestorage.com` | R2's S3 API base URL, when it isn't the account's |
 | `POSTILLA_R2_ACCESS_KEY_ID` | required | R2 S3 access key id |
 | `POSTILLA_R2_SECRET_ACCESS_KEY` | required | R2 S3 secret key |
 | `POSTILLA_R2_BUCKET` | required | The public bucket: stories and the dictionary |
