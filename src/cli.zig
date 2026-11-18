@@ -214,7 +214,7 @@ fn command(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, fol
         var scores: [6]f64 = undefined;
         const status = moderate(io, a, opencode, headers[0..1], state.written(), &scores) catch |err| return fail(w, "moderation: {t}", .{err});
         if (status != .ok) return fail(w, "moderation: {d}", .{@backingInt(status)});
-        const rejected = scores[0] < threshold;
+        const rejected = !(scores[0] >= threshold);
         story.moderation = .{ .none = scores[0], .homophobic = scores[1], .racist = scores[2], .sexist = scores[3], .religious = scores[4], .other_hate = scores[5], .forced = rejected and force };
 
         // story.json is written after moderation, then after each finished language.
@@ -233,16 +233,19 @@ fn command(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, fol
                         .{ .role = "system", .content = system },
                         .{ .role = "user", .content = try std.json.Stringify.valueAlloc(a, .{ .title = it.title, .previous = previous, .sentences = sentences }, .{}) },
                     } }, .{});
-                    // 3 tries: a reply that isn't a JSON array of the right length starts the next.
+                    // 3 tries: a reply that isn't a JSON array of the right length, or has an empty sentence, starts the next.
                     var reason: []const u8 = "";
-                    try done.append(a, for (0..3) |_| {
+                    try done.append(a, tries: for (0..3) |_| {
                         const res = outbound.request(io, a, .{}, .POST, chat, &headers, body, "") catch |err| return fail(w, "{s}: paragraph {d}: {t}", .{ lang, p, err });
                         if (res.status != .ok) return fail(w, "{s}: paragraph {d}: {d}", .{ lang, p, @backingInt(res.status) });
                         reason = "not a JSON array of strings";
                         const reply = std.json.parseFromSliceLeaky(struct { choices: [1]struct { message: struct { content: []const u8 } } }, a, res.body, .{ .ignore_unknown_fields = true }) catch continue;
                         const got = std.json.parseFromSliceLeaky([]const []const u8, a, reply.choices[0].message.content, .{}) catch continue;
                         reason = "wrong sentence count";
-                        if (got.len == sentences.len) break got;
+                        if (got.len != sentences.len) continue;
+                        reason = "empty sentence";
+                        for (got) |s| if (s.len == 0) continue :tries;
+                        break got;
                     } else return fail(w, "{s}: paragraph {d}: {s}", .{ lang, p, reason }));
                 }
                 _ = story.translations.map.orderedRemove(lang);
