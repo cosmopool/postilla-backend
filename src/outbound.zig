@@ -27,15 +27,19 @@ pub fn request(io: Io, a: Allocator, retry: Retry, method: std.http.Method, url:
     const copy = try a.alloc(u8, body.len);
     var n: usize = 0;
     while (true) : (n += 1) {
-        // The client has no timeouts: the try is a task, canceled when it hasn't connected
-        // or hasn't finished in time.
+        // The client has no timeouts: the try is a task, canceled when it hasn't connected in
+        // time, or has received nothing for `idle_timeout_ms`.
         var events: [2]Io.Event = .{ .unset, .unset };
         var got: []u8 = "";
         var wait: u64 = retry.waits_ms[@min(n, 2)];
         @memcpy(copy, body);
         var task = try io.concurrent(send, .{ &client, method, uri, headers, copy, &events, &got, &wait });
-        events[0].waitTimeout(io, .{ .duration = .{ .raw = .fromMilliseconds(retry.connect_timeout_ms), .clock = .awake } }) catch {};
-        if (events[0].isSet()) events[1].waitTimeout(io, .{ .duration = .{ .raw = .fromMilliseconds(retry.idle_timeout_ms), .clock = .awake } }) catch {};
+        events[1].waitTimeout(io, .{ .duration = .{ .raw = .fromMilliseconds(retry.connect_timeout_ms), .clock = .awake } }) catch {};
+        while (events[1].isSet()) {
+            events[1].reset();
+            if (events[0].isSet()) break;
+            events[1].waitTimeout(io, .{ .duration = .{ .raw = .fromMilliseconds(retry.idle_timeout_ms), .clock = .awake } }) catch {};
+        }
         if (task.cancel(io)) |status| {
             var sha: [32]u8 = undefined;
             std.crypto.hash.sha2.Sha256.hash(got, &sha, .{});
@@ -47,8 +51,9 @@ pub fn request(io: Io, a: Allocator, retry: Retry, method: std.http.Method, url:
     }
 }
 
-/// One try: sets `events[0]` once connected and both when done, the body into `got`, and a
-/// 429's or 503's Retry-After into `wait`.
+/// One try: sets `events[1]` once connected and each time part of the answer arrives, both
+/// when done (`events[0]` first), the body into `got`, and a 429's or 503's Retry-After into
+/// `wait`.
 fn send(client: *std.http.Client, method: std.http.Method, uri: std.Uri, headers: []const std.http.Header, body: []u8, events: *[2]Io.Event, got: *[]u8, wait: *u64) !std.http.Status {
     defer for (events) |*e| e.set(client.io);
     // The client's own user-agent (`zig/…`) would come first; OpenCode Go asks for the caller's.
@@ -59,7 +64,7 @@ fn send(client: *std.http.Client, method: std.http.Method, uri: std.Uri, headers
     }, .extra_headers = headers });
     defer req.deinit();
     errdefer req.connection.?.closing = true;
-    events[0].set(client.io);
+    events[1].set(client.io);
     try req.sendBodyComplete(body);
     var response = try req.receiveHead(&.{});
     var it = response.head.iterateHeaders();
@@ -67,6 +72,9 @@ fn send(client: *std.http.Client, method: std.http.Method, uri: std.Uri, headers
         if (std.ascii.eqlIgnoreCase(h.name, "retry-after") and (response.head.status == .too_many_requests or response.head.status == .service_unavailable))
             wait.* = 1000 * @as(u64, std.fmt.parseInt(u32, h.value, 10) catch continue);
     }
-    got.* = try response.reader(&.{}).allocRemaining(client.allocator, .unlimited);
+    var all: Io.Writer.Allocating = .init(client.allocator);
+    const reader = response.reader(&.{});
+    while (reader.stream(&all.writer, .unlimited)) |_| events[1].set(client.io) else |err| if (err != error.EndOfStream) return err;
+    got.* = all.written();
     return response.head.status;
 }
