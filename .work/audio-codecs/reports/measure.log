@@ -1,0 +1,7 @@
+1/6 audio.test.AC-1, AC-2, AC-3: 2 s of a 440 Hz sine at 48 kHz encode to a 16 kbit/s mono Ogg Opus that decodes back to it...OK
+2/6 audio.test.AC-4: the same 2 s at 48 kHz compress to a FLAC that decodes to the input exactly...OK
+3/6 audio.test.AC-5, AC-7: 120,000 samples at 48 kHz encode to the same bytes twice and last 2500 ms...OK
+4/6 audio.test.AC-6: 24 kHz input keeps its rate in OpusHead and STREAMINFO, its length in audio_ms rounded down, and twice its samples in granules...OK
+5/6 audio.test.AC-F1, AC-F2: no samples, or a rate the codecs don't take, is an error that leaks nothing...OK
+6/6 audio.test.AC-F3: every allocation failure during an encode returns error.OutOfMemory with no leak...OK
+All 6 tests passed.
