@@ -3,10 +3,10 @@
   "branch": "work/server-read",
   "jira": "",
   "base": "f62dd56c983ff2e0aaf4f647adfa779ff52e43f3",
-  "stage": "open",
-  "step": "approved",
+  "stage": "build",
+  "step": "tests",
   "round": null,
-  "commit": "f62dd56c983ff2e0aaf4f647adfa779ff52e43f3",
+  "commit": "ac401c20ccb0fc15c266a26971e73489f34c4cc6",
   "budget": {
     "added": 350,
     "newFiles": 1,
@@ -20,6 +20,12 @@
       "step": "approved",
       "round": null,
       "commit": "f62dd56c983ff2e0aaf4f647adfa779ff52e43f3"
+    },
+    {
+      "stage": "build",
+      "step": "tests",
+      "round": null,
+      "commit": "ac401c20ccb0fc15c266a26971e73489f34c4cc6"
     }
   ]
 }
