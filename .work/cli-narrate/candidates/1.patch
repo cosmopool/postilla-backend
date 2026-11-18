@@ -1,0 +1,314 @@
+diff --git a/build.zig b/build.zig
+index 08090fc..d83e081 100644
+--- a/build.zig
++++ b/build.zig
+@@ -72,6 +72,7 @@ pub fn build(b: *std.Build) void {
+     codecs.root_module.addIncludePath(flac_dir.path(b, "src/libFLAC/include"));
+     audio.addImport("c", audio_c.createModule());
+     audio.linkLibrary(codecs);
++    cli_mod.addImport("audio", audio);
+     codecs.root_module.addCSourceFiles(.{
+         .root = opus_dir,
+         .files = &opus_files,
+diff --git a/cli.env.example b/cli.env.example
+index 6bf177a..17e5e12 100644
+--- a/cli.env.example
++++ b/cli.env.example
+@@ -20,6 +20,8 @@ POSTILLA_OPENCODE_KEY=
+ # POSTILLA_OPENCODE_URL=https://opencode.ai/inference
+ # Required. Speechify key, used for simba-3.5 (narration).
+ POSTILLA_SPEECHIFY_KEY=
++# Optional. Speechify's base URL; narrate streams from /v1/audio/stream/with-timestamps under it.
++# POSTILLA_SPEECHIFY_URL=https://api.speechify.ai
+ 
+ # --- R2 -----------------------------------------------------------------------
+ 
+diff --git a/docs/specification.md b/docs/specification.md
+index 98526b2..60d9a4e 100644
+--- a/docs/specification.md
++++ b/docs/specification.md
+@@ -389,30 +389,31 @@ Read the translation in `story.json` and fix it by hand before narrating and pub
+ 
+ Narrates every translation in a language with `target` 1 (today only the Italian original); learners listen in the language they are learning. When another language becomes a target, its translations are narrated too, with a Speechify voice per language. A rerun narrates again and replaces the audio; narration reads only the paragraphs, so a title, subtitle or header change doesn't need it.
+ 
+-One streamed call narrates one translation: `POST https://api.speechify.ai/v1/audio/stream/with-timestamps` (Server-Sent Events), with `Authorization: Bearer $POSTILLA_SPEECHIFY_KEY`. The request sets:
++One streamed call narrates one translation: `POST <POSTILLA_SPEECHIFY_URL>/v1/audio/stream/with-timestamps` (Server-Sent Events; the base defaults to `https://api.speechify.ai`), with `Authorization: Bearer $POSTILLA_SPEECHIFY_KEY`. The request's JSON body sets:
+ 
++- `input` to the text below
+ - `model` to `simba-3.5`
+-- `voice_id` to the language's voice: `daniele-agent` for `it`
+-- `language` to `it-IT` for `it`
+-- `output_format` to `pcm_48000`, the highest-quality PCM that Speechify streams: headerless 16-bit little-endian mono at 48 kHz (`audio/L16;rate=48000;channels=1`)
++- `voice_id` and `language` from a table fixed in the CLI by language id: `it` → `daniele-agent`, `it-IT`. A language with `target` 1 missing from it stops the command (`<lang>: no voice`) before any Speechify call.
++- `output_format` to `pcm_48000`, the highest-quality PCM that Speechify streams: headerless 16-bit little-endian mono at 48 kHz (`audio/L16;rate=48000;channels=1`), encoded at 48,000 Hz
++- `options` to `{"loudness_normalization": true}`; text normalization stays at its default, off
+ 
+ That endpoint takes up to 20,000 spoken characters, which is why `story.json` rule 8 limits the Italian.
+ 
+-The input is the translation's paragraphs joined in reading order. The CLI reads the events:
++The input is the translation's paragraphs joined in reading order: the sentences joined by one space within a paragraph and the paragraphs by one newline, the same text `text_sha256` hashes. The CLI reads the events' `data` lines:
+ 
+-- `speech.chunk` events carry the audio and word marks. Each mark has `start` and `end` (character offsets into the input) and `start_time` and `end_time` in ms.
+-- `speech.done` ends the stream.
+-- `speech.error`, or a dropped connection, counts as a failed try. The whole call is retried, since one stream can't resume halfway.
++- `speech.chunk` events carry the audio (base64) and word marks. Each mark has `start` and `end` (code-point offsets into the input) and `start_time` and `end_time` in ms.
++- `speech.done` ends the stream. Other event types are ignored.
++- `speech.error`, or a dropped connection, counts as a failed try. The whole call is retried, since one stream can't resume halfway. So is a 200 whose stream ends without `speech.done`, has an event that isn't JSON or audio that isn't base64, or an odd number of audio bytes: up to 3 tries in all, each a whole `outbound.request` ([Retries](#retries)), the next one at once. After the third the command stops with `<lang>: narration: <reason>`, the `speech.error` message when there is one; any other status than 200 stops it at once, naming it.
+ 
+ The stream yields three outputs:
+ 
+-- **Sentence times:** each sentence's `start_ms` and `end_ms` run from its first word's `start_time` to its last word's `end_time`. Words are matched to sentences by mapping the marks' character offsets onto the sentences.
++- **Sentence times:** each sentence's `start_ms` and `end_ms` run from its first word's `start_time` to its last word's `end_time`, rounded down to whole ms. Words are matched to sentences by mapping the marks' character offsets onto the sentences: a mark belongs to the sentence whose code-point range in the input holds its `start`. A sentence with no mark gets `[e, e]`, `e` the previous sentence's `end_ms` (0 for the first). Every `end_ms` is capped at `audio_ms`, so tilla.md's rule on times holds.
+ - **App audio:** the PCM is encoded once to the Ogg Opus `.opus` that tilla.md describes (16 kbps, mono), written as `<lang>.opus`, with vendored libopusenc over vendored libopus. libopusenc writes the Ogg container (headers, pages, pre-skip, end trimming) and resamples to a rate Opus takes, so the CLI writes no container code. The settings are fixed: 16,000 bit/s, `OPUS_SIGNAL_VOICE`, complexity 10, VBR, and Ogg serial number 1 (libopusenc picks a random one otherwise), so the same PCM always gives the same `.opus` bytes and an unchanged narration keeps its `opus_sha256`. OpusHead's input rate is the PCM's rate, and `OpusTags` holds only libopusenc's vendor string. `audio_ms` is the PCM's length: its sample count ÷ its sample rate × 1000, rounded down.
+ - **Master:** the same PCM is also compressed to FLAC with vendored libFLAC, written as `<lang>.flac`. It is a lossless copy kept for re-encoding later: compression level 8, 16 bits, mono, the PCM's rate, the MD5 signature on, and the sample count in STREAMINFO. The app never downloads it.
+ 
+ `audio.encode` (`src/audio.zig`) makes both files in memory from the samples and their rate, and narrate writes them. It refuses no samples (`error.NoAudio`) and a rate outside 8,000–96,000 Hz (`error.UnsupportedRate`) before any C call; a codec call that fails returns `error.OpusEncode` or `error.FlacEncode`.
+ 
+-The times, `audio_ms` and the sha256 of the input text go to the translation's `audio` in `story.json`. Listen to the `.opus` before publishing.
++The times, `audio_ms` and the sha256 of the input text go to the translation's `audio` in `story.json`. Each language is written once all of it is done: `<lang>.opus`, `<lang>.flac`, then `story.json`, each to a `.tmp` file renamed into place; a write that fails stops the command naming the file. Listen to the `.opus` before publishing.
+ 
+ ### `postilla publish`
+ 
+@@ -442,7 +443,7 @@ It uploads every translation's `.tilla.gz`, `.opus` and `.flac` to R2 under the
+ 
+ Each call to an outside service (OpenCode, Speechify, R2) and to the server goes through `outbound.request` (`src/outbound.zig`) and gets 4 tries in all (1 + 3 retries), waiting 5 s, 30 s, then 2 min between them. A network error, a timeout, a 429 or a 5xx counts as a failed try; a `Retry-After` in seconds on a 429 or a 503 replaces the scheduled wait, capped at 2 min. Any other status ends the call at once with that status.
+ 
+-Every call sends `user-agent: postilla/1.0` (the HTTP client's own `zig/…` is replaced), which OpenCode Go asks of its clients, and `accept-encoding: identity`, since the client asks for gzip by default and OpenCode answers gzipped when asked. Each try sends its own copy of the body, so a try cut mid-send can't change what the next one sends. A try times out after 10 s without a connection, or 60 s after connecting without the whole answer. The HTTP client has no timeouts of its own, so the try runs as a task that is canceled when either time runs out.
++Every call sends `user-agent: postilla/1.0` (the HTTP client's own `zig/…` is replaced), which OpenCode Go asks of its clients, and `accept-encoding: identity`, since the client asks for gzip by default and OpenCode answers gzipped when asked. Each try sends its own copy of the body, so a try cut mid-send can't change what the next one sends. A try times out after 10 s without a connection, or once 60 s pass with no byte of the answer's body received: the idle timer is checked every 60 s and restarts whenever bytes came in, so an answer that keeps arriving runs as long as it takes. The HTTP client has no timeouts of its own, so the try runs as a task that is canceled when either time runs out.
+ 
+ After the fourth failed try, the command stops with the step that failed and the error. Rerunning it starts that step over, keeping what `story.json` already holds.
+ 
+@@ -529,6 +530,7 @@ Everything comes from env, read and checked once at startup. A missing required
+ | `POSTILLA_OPENCODE_KEY` | required | OpenCode key, for Jev and DeepSeek |
+ | `POSTILLA_OPENCODE_URL` | `https://opencode.ai/inference` | OpenCode's base URL; `translate` stops naming it when it has no `://` |
+ | `POSTILLA_SPEECHIFY_KEY` | required | Speechify key |
++| `POSTILLA_SPEECHIFY_URL` | `https://api.speechify.ai` | Speechify's base URL; `narrate` stops naming it when it has no `://` |
+ | `POSTILLA_R2_ACCOUNT_ID` | required | Cloudflare account id |
+ | `POSTILLA_R2_ENDPOINT` | `https://<account>.r2.cloudflarestorage.com` | R2's S3 API base URL, when it isn't the account's |
+ | `POSTILLA_R2_ACCESS_KEY_ID` | required | R2 S3 access key id |
+diff --git a/src/cli.zig b/src/cli.zig
+index 41c6c18..b4a8261 100644
+--- a/src/cli.zig
++++ b/src/cli.zig
+@@ -1,5 +1,5 @@
+ //! postilla: the authoring CLI (specification.md, The CLI). Each command works on one
+-//! story folder. The commands come with their slices: `translate` and `publish` so far.
++//! story folder: `translate`, `narrate` and `publish`.
+ 
+ const std = @import("std");
+ const Io = std.Io;
+@@ -9,6 +9,7 @@ const wire = @import("server").wire;
+ const tilla = @import("tilla");
+ const r2 = @import("r2");
+ const outbound = @import("outbound.zig");
++const encode = @import("audio").encode;
+ 
+ const usage =
+     \\usage: postilla <command> <folder>
+@@ -31,7 +32,7 @@ pub fn run(io: Io, arena: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir,
+     var buf: [4096]u8 = undefined;
+     var out = Io.File.stderr().writerStreaming(io, &buf);
+     defer out.interface.flush() catch {};
+-    var ok = (args.len == 3 and std.mem.eql(u8, args[1], "publish")) or (args.len >= 3 and std.mem.eql(u8, args[1], "translate"));
++    var ok = (args.len == 3 and (std.mem.eql(u8, args[1], "publish") or std.mem.eql(u8, args[1], "narrate"))) or (args.len >= 3 and std.mem.eql(u8, args[1], "translate"));
+     var force = false;
+     var redo: []const u8 = "";
+     var i: usize = 3;
+@@ -47,7 +48,7 @@ pub fn run(io: Io, arena: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir,
+         out.interface.writeAll(usage) catch {};
+         return 2;
+     }
+-    return command(io, arena, env, cwd, args[2], &out.interface, args[1][0] == 't', force, redo) catch |err| fail(&out.interface, "{s}: {t}", .{ args[1], err });
++    return command(io, arena, env, cwd, args[2], &out.interface, args[1][0], force, redo) catch |err| fail(&out.interface, "{s}: {t}", .{ args[1], err });
+ }
+ 
+ /// Prints one line naming what failed; returns exit code 1.
+@@ -81,6 +82,9 @@ pub fn moderate(io: Io, a: Allocator, base: []const u8, headers: []const std.htt
+ /// The English name DeepSeek's system message gives each language with `translate` 1.
+ const prompt_names: std.StaticStringMap([]const u8) = .initComptime(.{.{ "pt-BR", "Brazilian Portuguese" }});
+ 
++/// The Speechify `voice_id` and `language` of each language with `target` 1.
++const voices: std.StaticStringMap([2][]const u8) = .initComptime(.{.{ "it", .{ "daniele-agent", "it-IT" } }});
++
+ /// DeepSeek's system message, `{0s}` the prompt name and `{1s}` the CEFR level.
+ const system_message =
+     \\You translate short Italian stories into {0s} for {0s} speakers learning Italian.
+@@ -93,11 +97,12 @@ const system_message =
+     \\- Reply with only a JSON array of strings: one {0s} sentence per Italian sentence, in the same order, the same count. No commentary, no code fences.
+ ;
+ 
+-/// `postilla translate <folder>` and `postilla publish <folder>` (specification.md, The
+-/// CLI): the configuration, `story.json`'s rules and the server's lists, which both share,
+-/// then `translate`'s moderation and translations, or `publish`'s `.tilla` builds, uploads
+-/// and last `POST /stories`. Nothing goes to OpenCode or R2 until every check has passed.
+-fn command(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, folder: []const u8, w: *Io.Writer, translate: bool, force: bool, redo: []const u8) !u8 {
++/// `postilla translate|narrate|publish <folder>` (specification.md, The CLI), `cmd` the
++/// command's first letter: the configuration, `story.json`'s rules and the server's lists,
++/// which all share, then `translate`'s moderation and translations, `narrate`'s Speechify
++/// streams and audio files, or `publish`'s `.tilla` builds, uploads and last `POST /stories`.
++/// Nothing goes to OpenCode, Speechify or R2 until every check has passed.
++fn command(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, folder: []const u8, w: *Io.Writer, cmd: u8, force: bool, redo: []const u8) !u8 {
+     if (cwd.readFileAlloc(io, "cli.env", a, .limited(1 << 20))) |text| {
+         var lines = std.mem.splitScalar(u8, text, '\n');
+         var n: usize = 0;
+@@ -118,10 +123,13 @@ fn command(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, fol
+     if (endpoint.len > 0 and std.mem.find(u8, endpoint, "://") == null) return fail(w, "POSTILLA_R2_ENDPOINT: not a URL", .{});
+     const opencode_env = env.get("POSTILLA_OPENCODE_URL") orelse "";
+     const opencode = if (opencode_env.len > 0) opencode_env else "https://opencode.ai/inference";
+-    if (translate and std.mem.find(u8, opencode, "://") == null) return fail(w, "POSTILLA_OPENCODE_URL: not a URL", .{});
++    if (cmd == 't' and std.mem.find(u8, opencode, "://") == null) return fail(w, "POSTILLA_OPENCODE_URL: not a URL", .{});
++    const speechify_env = env.get("POSTILLA_SPEECHIFY_URL") orelse "";
++    const speechify = if (speechify_env.len > 0) speechify_env else "https://api.speechify.ai";
++    if (cmd == 'n' and std.mem.find(u8, speechify, "://") == null) return fail(w, "POSTILLA_SPEECHIFY_URL: not a URL", .{});
+     const threshold_env = env.get("POSTILLA_MODERATION_THRESHOLD") orelse "";
+     const threshold = std.fmt.parseFloat(f64, if (threshold_env.len > 0) threshold_env else "0.9") catch -1;
+-    if (translate and !(threshold >= 0 and threshold <= 1)) return fail(w, "POSTILLA_MODERATION_THRESHOLD: not a number from 0 to 1", .{});
++    if (cmd == 't' and !(threshold >= 0 and threshold <= 1)) return fail(w, "POSTILLA_MODERATION_THRESHOLD: not a number from 0 to 1", .{});
+     const client: r2.Client = .{
+         .endpoint = if (endpoint.len > 0) endpoint else try std.fmt.allocPrint(a, "https://{s}.r2.cloudflarestorage.com", .{env.get("POSTILLA_R2_ACCOUNT_ID").?}),
+         .bucket = env.get("POSTILLA_R2_BUCKET").?,
+@@ -190,7 +198,90 @@ fn command(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, fol
+             try l.put(a, list_id, if (magic[0] == 'L') .{ try r.int(u8), try r.int(u8) } else .{ 0, 0 });
+         }
+     }
+-    if (translate) {
++    if (cmd == 'n') {
++        // Every translation in a language with target 1, each with its voice before any call.
++        for (translations.keys()) |lang| {
++            if ((lists[3].get(lang) orelse [2]u8{ 0, 0 })[0] == 1 and !voices.has(lang)) return fail(w, "{s}: no voice", .{lang});
++        }
++        const url = try std.fmt.allocPrint(a, "{s}/v1/audio/stream/with-timestamps", .{speechify});
++        const headers = [_]std.http.Header{.{ .name = "authorization", .value = try std.fmt.allocPrint(a, "Bearer {s}", .{env.get("POSTILLA_SPEECHIFY_KEY").?}) }};
++        for (translations.keys(), translations.values()) |lang, *t| {
++            if ((lists[3].get(lang) orelse [2]u8{ 0, 0 })[0] != 1) continue;
++            const voice = voices.get(lang).?;
++            // The input, also what text_sha256 hashes: sentences joined by a space, paragraphs by a newline.
++            var input: Io.Writer.Allocating = .init(a);
++            for (t.paragraphs, 0..) |p, i| for (p, 0..) |s, j| try input.writer.print("{s}{s}", .{ if (j > 0) " " else if (i > 0) "\n" else "", s });
++            const body = try std.json.Stringify.valueAlloc(a, .{ .input = input.written(), .voice_id = voice[0], .model = "simba-3.5", .language = voice[1], .output_format = "pcm_48000", .options = .{ .loudness_normalization = true } }, .{});
++            // 3 tries: a stream with speech.error, without speech.done, or with an event that
++            // isn't JSON, audio that isn't base64 or an odd byte count, starts the next.
++            var pcm: std.array_list.Aligned(u8, .of(i16)) = .empty;
++            var marks: std.ArrayList([3]u32) = .empty; // start (code point), start_time, end_time
++            var reason: []const u8 = "";
++            tries: for (0..3) |_| {
++                const res = outbound.request(io, a, .{}, .POST, url, &headers, body, "") catch |err| return fail(w, "{s}: narration: {t}", .{ lang, err });
++                if (res.status != .ok) return fail(w, "{s}: narration: {d}", .{ lang, @backingInt(res.status) });
++                pcm.clearRetainingCapacity();
++                marks.clearRetainingCapacity();
++                var lines = std.mem.splitScalar(u8, res.body, '\n');
++                while (lines.next()) |line| {
++                    if (!std.mem.startsWith(u8, line, "data:")) continue;
++                    reason = "an event isn't JSON with base64 audio";
++                    const e = std.json.parseFromSliceLeaky(struct {
++                        type: []const u8,
++                        audio: []const u8 = "",
++                        speech_marks: []const struct { start: u32, start_time: f64, end_time: f64 } = &.{},
++                        @"error": struct { message: []const u8 } = .{ .message = "speech.error" },
++                    }, a, line[5..], .{ .ignore_unknown_fields = true }) catch continue :tries;
++                    const b64 = std.base64.standard.Decoder;
++                    b64.decode(try pcm.addManyAsSlice(a, b64.calcSizeForSlice(e.audio) catch continue :tries), e.audio) catch continue :tries;
++                    for (e.speech_marks) |m| try marks.append(a, .{ m.start, std.math.lossyCast(u32, m.start_time), std.math.lossyCast(u32, m.end_time) });
++                    reason = e.@"error".message;
++                    if (std.mem.eql(u8, e.type, "speech.error")) continue :tries;
++                    if (std.mem.eql(u8, e.type, "speech.done")) break;
++                } else {
++                    reason = "no speech.done";
++                    continue :tries;
++                }
++                reason = "odd audio byte count";
++                if (pcm.items.len % 2 == 0) break;
++            } else return fail(w, "{s}: narration: {s}", .{ lang, reason });
++            const encoded = try encode(a, std.mem.bytesAsSlice(i16, pcm.items), 48000);
++
++            // Each sentence's time: its first mark's start to its last's end, by the marks'
++            // offsets in its code-point range of the input; [e, e] without marks.
++            const times = try a.alloc([][2]u32, t.paragraphs.len);
++            var cp: usize = 0;
++            var end_ms: u32 = 0;
++            for (t.paragraphs, times) |p, *row| {
++                row.* = try a.alloc([2]u32, p.len);
++                for (p, row.*) |s, *time| {
++                    const end = cp + try std.unicode.utf8CountCodepoints(s);
++                    time.* = .{ end_ms, end_ms };
++                    var first = true;
++                    for (marks.items) |m| if (m[0] >= cp and m[0] < end) {
++                        if (first) time[0] = m[1];
++                        time[1] = @min(m[2], encoded.audio_ms);
++                        first = false;
++                    };
++                    end_ms = time[1];
++                    cp = end + 1;
++                }
++            }
++            var sha: [32]u8 = undefined;
++            Sha256.hash(input.written(), &sha, .{});
++            t.audio = .{ .audio_ms = encoded.audio_ms, .text_sha256 = try a.dupe(u8, &std.fmt.bytesToHex(sha, .lower)), .times = times };
++
++            // The audio files, then story.json, each to a temp file renamed into place.
++            const json_out = try std.json.Stringify.valueAlloc(a, story, .{ .whitespace = .indent_2, .emit_null_optional_fields = false });
++            for ([_][]const u8{ try std.fmt.allocPrint(a, "{s}.opus", .{lang}), try std.fmt.allocPrint(a, "{s}.flac", .{lang}), "story.json" }, [_][]const u8{ encoded.opus, encoded.flac, json_out }) |name, data| {
++                const tmp = try std.fmt.allocPrint(a, "{s}.tmp", .{name});
++                dir.writeFile(io, .{ .sub_path = tmp, .data = data }) catch |err| return fail(w, "{s}: {t}", .{ name, err });
++                dir.rename(tmp, dir, name, io) catch |err| return fail(w, "{s}: {t}", .{ name, err });
++            }
++        }
++        return 0;
++    }
++    if (cmd == 't') {
+         // The languages to do: translate 1, and missing or the one --redo names.
+         if (redo.len > 0 and (lists[3].get(redo) orelse [2]u8{ 0, 0 })[1] != 1) return fail(w, "--redo {s}: not a language with translate 1", .{redo});
+         var todo: std.ArrayList([2][]const u8) = .empty;
+diff --git a/src/outbound.zig b/src/outbound.zig
+index 3dc0842..afa558c 100644
+--- a/src/outbound.zig
++++ b/src/outbound.zig
+@@ -28,14 +28,19 @@ pub fn request(io: Io, a: Allocator, retry: Retry, method: std.http.Method, url:
+     var n: usize = 0;
+     while (true) : (n += 1) {
+         // The client has no timeouts: the try is a task, canceled when it hasn't connected
+-        // or hasn't finished in time.
++        // in time, or once `idle_timeout_ms` pass with no byte of the body received.
+         var events: [2]Io.Event = .{ .unset, .unset };
+         var got: []u8 = "";
+         var wait: u64 = retry.waits_ms[@min(n, 2)];
++        var received: std.atomic.Value(usize) = .init(0);
+         @memcpy(copy, body);
+-        var task = try io.concurrent(send, .{ &client, method, uri, headers, copy, &events, &got, &wait });
++        var task = try io.concurrent(send, .{ &client, method, uri, headers, copy, &events, &got, &wait, &received });
+         events[0].waitTimeout(io, .{ .duration = .{ .raw = .fromMilliseconds(retry.connect_timeout_ms), .clock = .awake } }) catch {};
+-        if (events[0].isSet()) events[1].waitTimeout(io, .{ .duration = .{ .raw = .fromMilliseconds(retry.idle_timeout_ms), .clock = .awake } }) catch {};
++        while (events[0].isSet() and !events[1].isSet()) {
++            const before = received.load(.monotonic);
++            events[1].waitTimeout(io, .{ .duration = .{ .raw = .fromMilliseconds(retry.idle_timeout_ms), .clock = .awake } }) catch {};
++            if (received.load(.monotonic) == before) break;
++        }
+         if (task.cancel(io)) |status| {
+             var sha: [32]u8 = undefined;
+             std.crypto.hash.sha2.Sha256.hash(got, &sha, .{});
+@@ -47,9 +52,9 @@ pub fn request(io: Io, a: Allocator, retry: Retry, method: std.http.Method, url:
+     }
+ }
+ 
+-/// One try: sets `events[0]` once connected and both when done, the body into `got`, and a
+-/// 429's or 503's Retry-After into `wait`.
+-fn send(client: *std.http.Client, method: std.http.Method, uri: std.Uri, headers: []const std.http.Header, body: []u8, events: *[2]Io.Event, got: *[]u8, wait: *u64) !std.http.Status {
++/// One try: sets `events[0]` once connected and both when done, the body into `got`, its
++/// byte count so far into `received`, and a 429's or 503's Retry-After into `wait`.
++fn send(client: *std.http.Client, method: std.http.Method, uri: std.Uri, headers: []const std.http.Header, body: []u8, events: *[2]Io.Event, got: *[]u8, wait: *u64, received: *std.atomic.Value(usize)) !std.http.Status {
+     defer for (events) |*e| e.set(client.io);
+     // The client's own user-agent (`zig/…`) would come first; OpenCode Go asks for the caller's.
+     // The client asks for gzip by default but `got` is read as sent, so ask for no encoding.
+@@ -67,6 +72,11 @@ fn send(client: *std.http.Client, method: std.http.Method, uri: std.Uri, headers
+         if (std.ascii.eqlIgnoreCase(h.name, "retry-after") and (response.head.status == .too_many_requests or response.head.status == .service_unavailable))
+             wait.* = 1000 * @as(u64, std.fmt.parseInt(u32, h.value, 10) catch continue);
+     }
+-    got.* = try response.reader(&.{}).allocRemaining(client.allocator, .unlimited);
++    var all: Io.Writer.Allocating = .init(client.allocator);
++    const reader = response.reader(&.{});
++    while (reader.stream(&all.writer, .unlimited)) |k| {
++        _ = received.fetchAdd(k, .monotonic);
++    } else |err| if (err != error.EndOfStream) return err;
++    got.* = all.written();
+     return response.head.status;
+ }
