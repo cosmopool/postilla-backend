@@ -9,6 +9,21 @@
             .hash = "N-V-__8AALc_rgC04POe18O0LKFRm4ouQpLtL3riscEmWp-Q",
             .lazy = true,
         },
+        .opus = .{
+            .url = "https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz",
+            .hash = "N-V-__8AAAmivwH7RvCrZo25NNu0lx2Sw-ogZhmqGXvorlHg",
+            .lazy = true,
+        },
+        .opusenc = .{
+            .url = "https://downloads.xiph.org/releases/opus/libopusenc-0.3.tar.gz",
+            .hash = "N-V-__8AANB3GQBtrxMa9xyAbZBStXmHzjUSq-s95bcFjzuO",
+            .lazy = true,
+        },
+        .flac = .{
+            .url = "https://downloads.xiph.org/releases/flac/flac-1.5.0.tar.xz",
+            .hash = "N-V-__8AAHSrwgDkuwylGkEyZxj-_xKsppp8z8563UYjXs2B",
+            .lazy = true,
+        },
     },
     .paths = .{ "build.zig", "build.zig.zon", "src" },
 }

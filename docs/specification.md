@@ -394,7 +394,7 @@ One streamed call narrates one translation: `POST https://api.speechify.ai/v1/au
 - `model` to `simba-3.5`
 - `voice_id` to the language's voice: `daniele-agent` for `it`
 - `language` to `it-IT` for `it`
-- the highest-quality PCM that Speechify streams
+- `output_format` to `pcm_48000`, the highest-quality PCM that Speechify streams: headerless 16-bit little-endian mono at 48 kHz (`audio/L16;rate=48000;channels=1`)
 
 That endpoint takes up to 20,000 spoken characters, which is why `story.json` rule 8 limits the Italian.
 
@@ -407,8 +407,10 @@ The input is the translation's paragraphs joined in reading order. The CLI reads
 The stream yields three outputs:
 
 - **Sentence times:** each sentence's `start_ms` and `end_ms` run from its first word's `start_time` to its last word's `end_time`. Words are matched to sentences by mapping the marks' character offsets onto the sentences.
-- **App audio:** the PCM is encoded once to the Ogg Opus `.opus` that tilla.md describes (16 kbps, mono), written as `<lang>.opus`, with vendored libopusenc over vendored libopus. libopusenc writes the Ogg container (headers, pages, pre-skip, end trimming) and resamples to a rate Opus takes, so the CLI writes no container code. `audio_ms` is the PCM's length: its sample count ÷ its sample rate × 1000.
-- **Master:** the same PCM is also compressed to FLAC with vendored libFLAC, written as `<lang>.flac`. It is a lossless copy kept for re-encoding later. The app never downloads it.
+- **App audio:** the PCM is encoded once to the Ogg Opus `.opus` that tilla.md describes (16 kbps, mono), written as `<lang>.opus`, with vendored libopusenc over vendored libopus. libopusenc writes the Ogg container (headers, pages, pre-skip, end trimming) and resamples to a rate Opus takes, so the CLI writes no container code. The settings are fixed: 16,000 bit/s, `OPUS_SIGNAL_VOICE`, complexity 10, VBR, and Ogg serial number 1 (libopusenc picks a random one otherwise), so the same PCM always gives the same `.opus` bytes and an unchanged narration keeps its `opus_sha256`. OpusHead's input rate is the PCM's rate, and `OpusTags` holds only libopusenc's vendor string. `audio_ms` is the PCM's length: its sample count ÷ its sample rate × 1000, rounded down.
+- **Master:** the same PCM is also compressed to FLAC with vendored libFLAC, written as `<lang>.flac`. It is a lossless copy kept for re-encoding later: compression level 8, 16 bits, mono, the PCM's rate, the MD5 signature on, and the sample count in STREAMINFO. The app never downloads it.
+
+`audio.encode` (`src/audio.zig`) makes both files in memory from the samples and their rate, and narrate writes them. It refuses no samples (`error.NoAudio`) and a rate outside 8,000–96,000 Hz (`error.UnsupportedRate`) before any C call; a codec call that fails returns `error.OpusEncode` or `error.FlacEncode`.
 
 The times, `audio_ms` and the sha256 of the input text go to the translation's `audio` in `story.json`. Listen to the `.opus` before publishing.
 
@@ -539,6 +541,7 @@ Everything comes from env, read and checked once at startup. A missing required 
 
 - A self-contained Zig project (Zig 0.17), with its own `build.zig` and `build.zig.zon`. `zig build` makes both executables into `zig-out/bin/`, and they share source files in `src/`: `server.zig` and `cli.zig` are the two entry points, `wire.zig` the binary encoding every body shares, `db.zig` the SQLite wrapper.
 - SQLite is the amalgamation (3.53.2), a `build.zig.zon` dependency by URL and hash, compiled in multi-thread mode (`SQLITE_THREADSAFE=2`): every thread opens its own connection, and no connection is shared. Both executables link it: the server for `postilla.db`, the CLI to read `dict.db`.
+- libopus 1.6.1 (the float build, no SIMD intrinsics), libopusenc 0.3 and libFLAC 1.5.0 (without Ogg) are `build.zig.zon` dependencies by URL and hash, compiled from their release tarballs into the `audio` module (`src/audio.zig`) with their config as `-D` flags. Both encoders link their decoders: libopus's repacketizer needs its packet parser, libFLAC's verify mode its decoder.
 - **`postilla-server`:** every connection runs as its own concurrent task on `std.Io.Threaded`, so one OS thread per connection, on `std.http.Server`. It closes a connection after a response when the request isn't keep-alive, and after 30 s with no request. A malformed request head, or one over the 8 KiB head buffer, gets a 400 `bad request head` and the connection closes. Each connection opens its own SQLite connection; the database runs in WAL mode (`synchronous = NORMAL`) with a 5 s busy timeout, so readers never wait on a publish and a second writer waits for the first instead of failing. It makes no outbound calls.
 - **`words`:** `src/words.zig`, the word rule, the normalization and the lookup chain ([tilla.md, Words](tilla.md#words)), with no dependencies. `build.zig` exports it as a module, so postilla-content imports the same code through a `build.zig.zon` dependency on this repo; SQLite is a lazy dependency, so importing `words` doesn't fetch it. It exports `split(text, out)` (the word spans), `normalize(text, out)` and `lookupKeys(word, buf, keys)`; callers size the buffers (`out.len >= text.len`, `buf.len >= 2 * word.len`), and nothing allocates. `zig build dart` writes the app's normalization table, `normalize` and `lookupKeys` (`zig-out/dart/words_norm.dart`) from the same source; `zig build test` checks that file with `dart`, so it needs the Dart SDK on the PATH.
 - **`postilla`:** one process per command, single-threaded. It vendors libopus, libopusenc and libFLAC, makes HTTPS client calls to OpenCode, Speechify, R2 and the server, and signs its R2 uploads and downloads with SigV4.
@@ -559,5 +562,4 @@ OpenCode, Speechify and R2 are system boundaries. Tests point their base URLs at
 
 ## Open
 
-- Which PCM sample rate the streaming endpoint actually delivers. The docs list `pcm_48000` but default streaming to 24 kHz. The first real call settles it.
 - Where the app gets the bucket's public base URL. Only the manifest URL is built into the app (ARQ-06), so the manifest could carry it.
