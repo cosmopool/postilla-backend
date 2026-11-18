@@ -1,0 +1,1 @@
+{"round":1,"newCritical":0,"seen":["src/server.zig: lang_count 0 answers 'lang: no 'it'' where the spec's rule order requires 'body: wrong length'","src/server.zig: GET /languages writes past its preallocated body when a hand-edited target/translate is not an integer"]}

@@ -1,0 +1,19 @@
+test
++- run test 0 pass, 1 fail (1 total)
+error: 'server-write_repro_r1_1.test.AC-6: a STRY with lang_count 0 gets 400 'body: wrong length', rule 2 before rule 4' failed:
+       expected 400, found 404
+       /home/agent/.local/zig/lib/std/testing.zig:93:17: 0x1266c7a in expectEqualInner__func_953 (std.zig)
+                       return error.TestExpectedEqual;
+                       ^
+       /home/agent/.local/zig/lib/std/testing.zig:57:5: 0x12671ca in expectEqual (server-write_repro_r1_1.zig)
+           return expectEqualInner(T, expected, actual);
+           ^
+       /home/arrow/Development/postilla-backend/.claude/worktrees/feature-server-write-base/test/server-write_repro_r1_1.zig:21:5: 0x126723d in test.AC-6: a STRY with lang_count 0 gets 400 'body: wrong length', rule 2 before rule 4 (server-write_repro_r1_1.zig)
+           try expectEqual(400, r.status);
+           ^
+failed command: ./.zig-cache/o/1a9ab596bb4f081845158d2f33b26968/test --cache-dir=./.zig-cache --seed=0xf84b6138 --listen=-
+
+Build Summary: 2/4 steps succeeded (1 failed); 0/1 tests passed (1 failed)
+test transitive failure
++- run test 0 pass, 1 fail (1 total)
+
