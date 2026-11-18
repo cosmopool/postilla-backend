@@ -1,0 +1,13 @@
+1/2 tilla-writer_repro_r1_1.test.AC-8: 65 536 tags are refused with an error instead of crashing the build...OK
+2/2 tilla-writer_repro_r1_1.test.AC-8: one paragraph of 65 536 word-less sentences is refused with an error instead of crashing...OK
+All 2 tests passed.
+1/6 tilla.test.AC-1, AC-2: an Italian translation without narration reads back field by field, with the spans words.split gives...OK
+2/6 tilla.test.AC-3, AC-4: band_words counts each word in the best band of its lemmas, by form, then form_norm, then after the apostrophe...OK
+3/6 tilla.test.AC-5: a pt-BR translation lists its words, carries four zero band_words and never opens the dict...OK
+4/6 tilla.test.AC-6, AC-7: a narrated translation carries its audio and sentence times, and builds to the same bytes, sha256 and gunzipped .tilla every time...OK
+5/6 tilla.test.AC-8: an input that breaks a rule is refused, and the limits themselves are accepted...OK
+6/6 tilla.test.AC-F1: a dict.db that can't be opened, isn't a database or has no form table fails an Italian build with error.Sqlite...[db] (warn): unable to open database file
+[db] (warn): file is not a database
+[db] (warn): no such table: form
+OK
+All 6 tests passed.
