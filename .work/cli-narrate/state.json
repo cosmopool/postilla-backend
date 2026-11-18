@@ -1,0 +1,25 @@
+{
+  "slug": "cli-narrate",
+  "branch": "work/cli-narrate",
+  "jira": "",
+  "base": "2be599996f7a0a49b9be79f0e591827ca388a745",
+  "stage": "open",
+  "step": "approved",
+  "round": null,
+  "commit": "2be599996f7a0a49b9be79f0e591827ca388a745",
+  "budget": {
+    "added": 300,
+    "newFiles": 0,
+    "newSymbols": 0
+  },
+  "api": "settled",
+  "pending": null,
+  "history": [
+    {
+      "stage": "open",
+      "step": "approved",
+      "round": null,
+      "commit": "2be599996f7a0a49b9be79f0e591827ca388a745"
+    }
+  ]
+}
