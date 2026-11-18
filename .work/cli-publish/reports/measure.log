@@ -1,0 +1,22 @@
+1/1 cli-publish_repro_r1_1.test.AC-1: POSTILLA_R2_ENDPOINT= in cli.env counts as missing and the default endpoint is used, without a crash...dict: InvalidFormat
+OK
+All 1 tests passed.
+1/1 cli-publish_repro_r1_2.test.AC-9: with no dict cache directory at all, the first publish downloads the dictionary and publishes...OK
+All 1 tests passed.
+1/1 cli-publish_repro_r1_3.test.AC-F4: a scheme-less POSTILLA_R2_ENDPOINT in cli.env fails with exit 1 instead of crashing...POSTILLA_R2_ENDPOINT: not a URL
+OK
+All 1 tests passed.
+1/1 cli-publish_repro_r2_1.test.AC-1, AC-9: a dict cache that is a symlink to an existing directory publishes, and the dictionary lands in the directory it points to...OK
+All 1 tests passed.
+1/11 cli_publish.test.AC-1, AC-2, AC-9, AC-11: a narrated story uploads both .tilla.gz and its audio and the feed lists both; a republish with a read-only cached dict.db moves no cursor and downloads nothing...OK
+2/11 cli_publish.test.AC-3: a story.json that breaks any of rules 1 to 8 exits 1 with `story.json: <reason>`, uploading nothing and publishing nothing...OK
+3/11 cli_publish.test.AC-3: the 20 000-character limit counts code points, so an Italian of exactly 20 000 two-byte letters publishes...OK
+4/11 cli_publish.test.AC-4, AC-5, AC-6: an id the server doesn't list, a missing translate language, or a missing or stale narration exits 1 naming what to fix, before any upload...OK
+5/11 cli_publish.test.AC-7: a republish without a published translation, once the server no longer asks for it, prints the server's 409 reason and exits 1...OK
+6/11 cli_publish.test.AC-8, AC-F4: cli.env in the current directory fills what the environment lacks and the environment wins over it; a variable in neither, or a line without =, exits 1 naming it...OK
+7/11 cli_publish.test.AC-F3: a folder that doesn't exist, or has no story.json, exits 1 naming the path...OK
+8/11 cli_publish.test.AC-F5: a cached dict.db that isn't a SQLite database, or has no form table, exits 1 naming the dictionary before any upload...OK
+9/11 cli_publish.test.AC-F1: an upload R2 fails on every try stops the command naming its key, and no POST /stories reaches the server; a failed .tilla.gz stops it before any audio upload...OK
+10/11 cli_publish.test.AC-F2: a server that answers no list request fails after the retries and exits 1 before any upload...OK
+11/11 cli_publish.test.AC-10: an upload whose first try is cut mid-body is retried with exactly the original bytes and a valid signature, and the caller's buffer is unchanged...OK
+All 11 tests passed.
