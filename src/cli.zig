@@ -64,8 +64,10 @@ fn publish(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, fol
         "POSTILLA_R2_ACCOUNT_ID", "POSTILLA_R2_ACCESS_KEY_ID", "POSTILLA_R2_SECRET_ACCESS_KEY", "POSTILLA_R2_BUCKET",
     }) |name| if (@as([]const u8, env.get(name) orelse "").len == 0) return fail(w, "{s}: required", .{name});
     const server_url = env.get("POSTILLA_SERVER_URL").?;
+    const endpoint = env.get("POSTILLA_R2_ENDPOINT") orelse "";
+    if (endpoint.len > 0 and std.mem.find(u8, endpoint, "://") == null) return fail(w, "POSTILLA_R2_ENDPOINT: not a URL", .{});
     const client: r2.Client = .{
-        .endpoint = env.get("POSTILLA_R2_ENDPOINT") orelse try std.fmt.allocPrint(a, "https://{s}.r2.cloudflarestorage.com", .{env.get("POSTILLA_R2_ACCOUNT_ID").?}),
+        .endpoint = if (endpoint.len > 0) endpoint else try std.fmt.allocPrint(a, "https://{s}.r2.cloudflarestorage.com", .{env.get("POSTILLA_R2_ACCOUNT_ID").?}),
         .bucket = env.get("POSTILLA_R2_BUCKET").?,
         .access_key_id = env.get("POSTILLA_R2_ACCESS_KEY_ID").?,
         .secret_access_key = env.get("POSTILLA_R2_SECRET_ACCESS_KEY").?,
@@ -183,7 +185,10 @@ fn publish(io: Io, a: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir, fol
         try inputs.append(a, in);
     }
 
-    const dict = try a.dupeSentinel(u8, client.dict(io, a, env.get("POSTILLA_DICT_DIR") orelse "./dict") catch |err| return fail(w, "dict: {t}", .{err}), 0);
+    const dict_env = env.get("POSTILLA_DICT_DIR") orelse "";
+    const dict_dir = if (dict_env.len > 0) dict_env else "./dict";
+    cwd.createDirPath(io, dict_dir) catch |err| return fail(w, "dict: {t}", .{err});
+    const dict = try a.dupeSentinel(u8, client.dict(io, a, dict_dir) catch |err| return fail(w, "dict: {t}", .{err}), 0);
     var uploads: std.ArrayList([2][]const u8) = .empty;
     var body: wire.Writer = .{ .buf = try a.alloc(u8, 22 + 40 * inputs.items.len) };
     body.header("STRY");

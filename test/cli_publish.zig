@@ -189,7 +189,6 @@ const World = struct {
         w.dict_hex = sha256Hex(gz);
         try w.f.object(try std.fmt.allocPrint(a, "dict/{s}.db.gz", .{&w.dict_hex}), gz);
         try w.f.object("dict/latest", try std.fmt.allocPrint(a, "{s} {d}\n", .{ &w.dict_hex, gz.len }));
-        try w.tmp.dir.createDirPath(io, "dict");
 
         w.env = .init(a);
         try w.env.put("POSTILLA_SERVER_URL", try std.fmt.allocPrint(a, "http://127.0.0.1:{d}", .{w.h.port}));
@@ -818,6 +817,7 @@ test "AC-F5: a cached dict.db that isn't a SQLite database, or has no form table
         "this is not a SQLite database, only a line of text standing where the dictionary build should be, and nothing more\n",
         try w.tmp.dir.readFileAlloc(io, "no_form.db", a, .limited(1 << 20)),
     };
+    try w.tmp.dir.createDirPath(io, "dict");
     for (builds) |build| {
         try w.tmp.dir.writeFile(io, .{ .sub_path = cached, .data = build });
         const run = try w.publish(path);
