@@ -1,0 +1,25 @@
+{
+  "slug": "cli-translate",
+  "branch": "main",
+  "jira": "",
+  "base": "d0857375c2d1fd111aa77fe910891d5043fed9aa",
+  "stage": "open",
+  "step": "approved",
+  "round": null,
+  "commit": "d0857375c2d1fd111aa77fe910891d5043fed9aa",
+  "budget": {
+    "added": 300,
+    "newFiles": 2,
+    "newSymbols": 1
+  },
+  "api": "settled",
+  "pending": null,
+  "history": [
+    {
+      "stage": "open",
+      "step": "approved",
+      "round": null,
+      "commit": "d0857375c2d1fd111aa77fe910891d5043fed9aa"
+    }
+  ]
+}
