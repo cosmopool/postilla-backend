@@ -1,6 +1,6 @@
 # `.tilla` format
 
-One `.tilla` holds one translation of one story: its header, then its paragraphs. This repo's CLI (`postilla publish`) is the only writer; the learner app is the reader. The file is stored gzipped as `stories/<id>/<lang>/<sha256>.tilla.gz` in the public R2 bucket, where `sha256` is the hash of the `.tilla` before gzip (see [Files in R2](specification.md#files-in-r2)). The same `.tilla` always has the same sha256, whatever gzip library or level wrote the `.gz`, so an edit that leaves a translation's content unchanged leaves its key and cursor alone, and no app downloads it again. A reader checks the sha256 after gunzip. Machine-readable layout: [formats/tilla.ksy](formats/tilla.ksy).
+One `.tilla` holds one translation of one story: its header, then its paragraphs. This repo's CLI (`postilla publish`) is the only writer, through `tilla.build` in `src/tilla.zig`; the learner app is the reader. The file is stored gzipped as `stories/<id>/<lang>/<sha256>.tilla.gz` in the public R2 bucket, where `sha256` is the hash of the `.tilla` before gzip (see [Files in R2](specification.md#files-in-r2)). The same `.tilla` always has the same sha256, whatever gzip library or level wrote the `.gz`, so an edit that leaves a translation's content unchanged leaves its key and cursor alone, and no app downloads it again. A reader checks the sha256 after gunzip. Machine-readable layout: [formats/tilla.ksy](formats/tilla.ksy).
 
 Status: **draft**, recreated from what the backend docs recorded after the original TILLA.md was lost.
 
@@ -122,6 +122,8 @@ A reader rejects a file that breaks any of these, and keeps what it already had:
 6. Words in a sentence are in order and don't overlap: `start < end`, `end <= len(text)`, each `start` at or after the previous `end`, and both on UTF-8 character boundaries.
 7. The sum of all `word_count`s is `words`. When `lang` is `it`, the four `band_words` add up to `words`; when it isn't, they are all 0.
 8. Narration: `audio_ms`, `opus_size` and `opus_sha256` are all zero exactly when every `start_ms` and `end_ms` is 0. With narration, every sentence has `start_ms <= end_ms <= audio_ms`, and each sentence starts at or after the previous one's `start_ms`.
+
+The writer makes rules 2, 5, 6 and 8 hold by construction: it refuses, before writing a byte, an empty title, subtitle, paragraph list, paragraph or sentence, a sentence over 65 535 bytes (a span's `u16` can't reach past it), more than 65 535 words in a translation, a narration without one time pair per sentence, and times that break rule 8.
 
 ## Audio
 
