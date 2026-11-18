@@ -1,0 +1,17 @@
+test
++- run test stderr
+first translate: exit 2: usage: postilla <command> <folder>
+
+  translate <folder> [--force] [--redo <lang>]   moderate the Italian, translate the missing languages
+  narrate   <folder>                             narrate every language with target 1
+  publish   <folder>                             build the .tilla files, upload to R2, POST /stories
+
+pt-BR written with an empty subtitle: false
+translate --redo pt-BR: exit 2: usage: postilla <command> <folder>
+
+  translate <folder> [--force] [--redo <lang>]   moderate the Italian, translate the missing languages
+  narrate   <folder>                             narrate every language with target 1
+  publish   <folder>                             build the .tilla files, upload to R2, POST /stories
+
+failed command: ./.zig-cache/o/c180fc888f292b962cdbaff8b6ba6136/test --cache-dir=./.zig-cache --seed=0xb8148524 --listen=-
+
