@@ -148,6 +148,7 @@ dict/<sha256>.db.gz                         a dictionary build
 - A republish whose audio didn't change gives the same `.opus` and `.flac` keys, so no app downloads them again. The `.tilla` names its `.opus` by `opus_sha256`.
 - The app builds each `.tilla.gz` URL from a feed record's `id`, `lang` and `sha256`, and the `.opus` URL from the `.tilla`.
 - A translation without narration has no `.opus` or `.flac`; its `.tilla` has `audio_ms` 0.
+- The CLI talks to R2's S3 API (`src/r2.zig`) at `https://<account>.r2.cloudflarestorage.com`, path-style (`/<bucket>/<key>`), signing every request with SigV4: region `auto`, service `s3`, signed headers `host;x-amz-content-sha256;x-amz-date`, and `x-amz-content-sha256` set to the body's hex sha256. Every object goes up in one PUT, with `Content-Type` by extension (`.tilla.gz` `application/gzip`, `.opus` `audio/ogg`, `.flac` `audio/flac`), the immutable `Cache-Control` above, and never a `Content-Encoding`: a client would gunzip the `.tilla.gz` and its sha256 check would fail.
 - `stories/` is written only by `postilla publish`; the server never touches R2. The `dict/` keys belong to the postilla-content build ([content-handoff.md](content-handoff.md#4-publishing-dictdb)); the CLI only reads them, and the build never touches `stories/`.
 
 ## Endpoints
@@ -413,7 +414,7 @@ Builds every translation's `.tilla`, uploads the files and publishes the story. 
 
 A word takes the most common band among the lemmas its form leads to in `dict.db` (1 before 2 before 3 before 0): "porta" (*portare* 1, *porgere* 2) counts as band 1. A word with no lemma counts as band 0. Words are split, normalized and looked up by the shared `words` module, the same way the app looks them up on tap ([tilla.md, Words](tilla.md#words)).
 
-The CLI gets `dict.db` the same way the app does: it reads `dict/latest` from the public bucket, downloads that build into `POSTILLA_DICT_DIR` if it doesn't have it, and computes `band_words` from it. It keeps only the current build there and deletes older ones once it has switched. An R2 failure there is a failed try like any other R2 call. An older story's `band_words` reflect the bands at its publish time until it is republished.
+The CLI gets `dict.db` the same way the app does: it reads `dict/latest` from the public bucket, downloads that build into `POSTILLA_DICT_DIR` if it doesn't have it, and computes `band_words` from it. The build is kept as `<POSTILLA_DICT_DIR>/<sha256>.db`, named by the `.gz`'s sha256; when that file is there nothing is downloaded. Otherwise the `.gz` is checked against `dict/latest`'s size and sha256 (a mismatch is a failed try), gunzipped into an unnamed temp file in the same directory and linked into place. It keeps only the current build there and deletes every other `*.db` once it has switched. A `dict/latest` that isn't the line CONTRACT.md describes fails at once. An R2 failure there is a failed try like any other R2 call. An older story's `band_words` reflect the bands at its publish time until it is republished.
 
 A `.tilla` word is only a span, looked up by form; `dict.db` entry ids change between builds (ARQ-35) and nothing stores them, so a dictionary rebuild never touches a published story.
 
@@ -425,9 +426,11 @@ It uploads every translation's `.tilla.gz`, `.opus` and `.flac` to R2 under the 
 
 ### Retries
 
-Each call to an outside service (OpenCode, Speechify, R2) is tried up to 3 times, waiting 5 s, 30 s, then 2 min between tries. A network error, a 429 or a 5xx counts as a failed try.
+Each call to an outside service (OpenCode, Speechify, R2) goes through `outbound.request` (`src/outbound.zig`) and gets 4 tries in all (1 + 3 retries), waiting 5 s, 30 s, then 2 min between them. A network error, a timeout, a 429 or a 5xx counts as a failed try; a `Retry-After` in seconds on a 429 or a 503 replaces the scheduled wait, capped at 2 min. Any other status ends the call at once with that status.
 
-After the third failed try, the command stops with the step that failed and the error. Rerunning it starts that step over, keeping what `story.json` already holds.
+A try times out after 10 s without a connection, or 60 s after connecting without the whole answer. The HTTP client has no timeouts of its own, so the try runs as a task that is canceled when either time runs out.
+
+After the fourth failed try, the command stops with the step that failed and the error. Rerunning it starts that step over, keeping what `story.json` already holds.
 
 ## Database
 
