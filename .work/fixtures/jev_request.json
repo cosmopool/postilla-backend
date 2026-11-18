@@ -1,0 +1,18 @@
+{
+ "model": "jev-1.13",
+ "state": "Il treno per Bologna\nUn viaggio in treno\nSono le otto.\nAna è a Roma.\nIl treno per Bologna parte alle nove.",
+ "questions": {
+  "hate": {
+   "type": "choice",
+   "instructions": "Does this Italian text contain hate speech? Pick the kind, or none.",
+   "criteria": {
+    "none": "No hate speech: the text attacks no group for who they are",
+    "homophobic": "Attacks or demeans people for their sexual orientation or gender identity",
+    "racist": "Attacks or demeans people for their race, ethnicity or nationality",
+    "sexist": "Attacks or demeans people for their sex or gender",
+    "religious": "Attacks or demeans people for their religion",
+    "other_hate": "Attacks or demeans another protected group, such as disabled people"
+   }
+  }
+ }
+}

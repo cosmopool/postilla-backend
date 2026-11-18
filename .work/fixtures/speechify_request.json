@@ -1,0 +1,7 @@
+{
+ "input": "C'era una volta… «Un re!» diranno subito i miei piccoli lettori.\nNo, ragazzi, avete sbagliato. Perché?",
+ "voice_id": "daniele-agent",
+ "model": "simba-3.5",
+ "language": "it-IT",
+ "output_format": "pcm_48000"
+}
