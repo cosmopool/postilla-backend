@@ -30,5 +30,21 @@
     },
     "exceeded": [],
     "within_budget": true
+  },
+  {
+    "stage": "bench",
+    "step": "done",
+    "base": "ed77e3cf559f507ef5398535638935ab4396c441",
+    "added": 63,
+    "removed": 0,
+    "new_files": 1,
+    "new_public_symbols": 2,
+    "budget": {
+      "added": null,
+      "new_files": null,
+      "new_public_symbols": null
+    },
+    "exceeded": [],
+    "within_budget": true
   }
 ]
