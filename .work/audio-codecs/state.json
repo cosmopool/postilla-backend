@@ -4,28 +4,16 @@
   "jira": "",
   "base": "ed77e3cf559f507ef5398535638935ab4396c441",
   "stage": "minimize",
-  "step": "auto",
+  "step": "approved",
   "round": null,
-  "commit": "c44e3384a94b5a885d13b1b971ce87a45ba54641",
+  "commit": "21947b1a55bcfae35633f1c984a404402cef2f96",
   "budget": {
     "added": 300,
     "newFiles": 2,
     "newSymbols": 2
   },
   "api": "settled",
-  "pending": {
-    "kind": "deletion-queue",
-    "queue": [
-      {
-        "file": "test/audio.zig",
-        "line": 221,
-        "construct": "const sample = std.math.cast(i16, s) orelse { f.failed = true; return 1; };",
-        "class": "defensive",
-        "reason": "This is test code checking for a decoded value outside i16 range. Before decoding, streamInfo asserts bits == 16, and libFLAC never hands a 16-bit stream's write callback values outside i16, so the orelse branch exists only 'in case'. `@intCast` would state the same invariant, and a violation would still fail the test (as a safety panic).",
-        "riskIfWrong": "If a corrupt FLAC ever produced out-of-range samples, the test would panic on @intCast instead of failing cleanly through expect(!f.failed). It is still a test failure, only less readable."
-      }
-    ]
-  },
+  "pending": null,
   "history": [
     {
       "stage": "open",
@@ -68,6 +56,12 @@
       "step": "auto",
       "round": null,
       "commit": "c44e3384a94b5a885d13b1b971ce87a45ba54641"
+    },
+    {
+      "stage": "minimize",
+      "step": "approved",
+      "round": null,
+      "commit": "21947b1a55bcfae35633f1c984a404402cef2f96"
     }
   ],
   "verify": {
