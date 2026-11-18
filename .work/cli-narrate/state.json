@@ -3,10 +3,10 @@
   "branch": "work/cli-narrate",
   "jira": "",
   "base": "2be599996f7a0a49b9be79f0e591827ca388a745",
-  "stage": "build",
-  "step": "done",
-  "round": null,
-  "commit": "23339cc631aa64d42671b9fab47aa381f29f2b78",
+  "stage": "verify",
+  "step": "round-1",
+  "round": 1,
+  "commit": "a7f1278fbd0c270f8e85f56e6ffe772c05937206",
   "budget": {
     "added": 300,
     "newFiles": 0,
@@ -38,6 +38,20 @@
       "step": "done",
       "round": null,
       "commit": "23339cc631aa64d42671b9fab47aa381f29f2b78"
+    },
+    {
+      "stage": "verify",
+      "step": "round-1",
+      "round": 1,
+      "commit": "a7f1278fbd0c270f8e85f56e6ffe772c05937206"
     }
-  ]
+  ],
+  "verify": {
+    "round": 1,
+    "newCritical": 1,
+    "seen": [
+      "src/cli.zig: A Speechify word mark whose start_time or end_time does not fit in u32 crashes narrate (@intFromFloat panic) instead of failing the try",
+      "src/cli.zig: narrate's PCM buffer is regrown in the arena per event and re-created per try, keeping about 3x the PCM per try"
+    ]
+  }
 }
