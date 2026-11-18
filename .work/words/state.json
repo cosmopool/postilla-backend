@@ -3,10 +3,10 @@
   "branch": "work/words",
   "jira": "",
   "base": "3e75d29277f3da5013a05db5b49aec18d7d71e88",
-  "stage": "build",
-  "step": "done",
-  "round": null,
-  "commit": "47048dd2d0f1d9c619fc22622cc5fe8884eacf19",
+  "stage": "verify",
+  "step": "round-1",
+  "round": 1,
+  "commit": "b5a5c734b0d57385e1ae457fef26b0f8088262a3",
   "budget": {
     "added": 220,
     "newFiles": 2,
@@ -38,6 +38,17 @@
       "step": "done",
       "round": null,
       "commit": "47048dd2d0f1d9c619fc22622cc5fe8884eacf19"
+    },
+    {
+      "stage": "verify",
+      "step": "round-1",
+      "round": 1,
+      "commit": "b5a5c734b0d57385e1ae457fef26b0f8088262a3"
     }
-  ]
+  ],
+  "verify": {
+    "round": 1,
+    "newCritical": 0,
+    "seen": []
+  }
 }
