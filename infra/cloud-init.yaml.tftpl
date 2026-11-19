@@ -1,0 +1,97 @@
+#cloud-config
+# First boot of the postilla VPS (docs/specification.md, Deployment): postilla-server under
+# systemd with a root-only env file, Caddy in front for TLS, Litestream streaming the WAL to
+# the private backup bucket. A rebuilt server restores postilla.db from that bucket first.
+package_update: true
+package_upgrade: true
+packages:
+  - caddy
+  - sqlite3
+  - curl
+
+write_files:
+  # The only secret the VPS holds besides Litestream's own key.
+  - path: /etc/postilla/env
+    owner: root:root
+    permissions: "0600"
+    content: |
+      POSTILLA_PORT=8080
+      POSTILLA_BIND=127.0.0.1
+      POSTILLA_DB=/var/lib/postilla/postilla.db
+      POSTILLA_AUTHOR_TOKEN=${author_token}
+
+  - path: /etc/systemd/system/postilla-server.service
+    content: |
+      [Unit]
+      Description=postilla-server
+      Wants=network-online.target
+      After=network-online.target
+      # Without the binary (copied after the first apply) the unit just doesn't start.
+      ConditionPathExists=/usr/local/bin/postilla-server
+
+      [Service]
+      User=postilla
+      Group=postilla
+      EnvironmentFile=/etc/postilla/env
+      WorkingDirectory=/var/lib/postilla
+      ExecStart=/usr/local/bin/postilla-server
+      Restart=on-failure
+      RestartSec=2
+      # One thread and one file per connection.
+      LimitNOFILE=65536
+      NoNewPrivileges=true
+      ProtectSystem=strict
+      ProtectHome=true
+      PrivateTmp=true
+      ReadWritePaths=/var/lib/postilla
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # Litestream runs as postilla too, so the WAL and its own files keep one owner.
+  - path: /etc/systemd/system/litestream.service.d/user.conf
+    content: |
+      [Service]
+      User=postilla
+      Group=postilla
+
+  - path: /etc/litestream.yml
+    permissions: "0600"
+    content: |
+      dbs:
+        - path: /var/lib/postilla/postilla.db
+          replica:
+            type: s3
+            bucket: ${backup_bucket}
+            path: postilla.db
+            endpoint: ${r2_host}
+            region: auto
+            access-key-id: ${litestream_key_id}
+            secret-access-key: ${litestream_secret}
+
+  # TLS by Caddy's own ACME certificate for the API name; the server stays on loopback.
+  # Deferred: written after the caddy package, so it replaces the package's default.
+  - path: /etc/caddy/Caddyfile
+    defer: true
+    content: |
+      ${api_hostname} {
+        reverse_proxy 127.0.0.1:8080
+      }
+
+runcmd:
+  - useradd --system --home-dir /var/lib/postilla --shell /usr/sbin/nologin postilla
+  - install -d -o postilla -g postilla -m 0750 /var/lib/postilla
+  - chown postilla:postilla /etc/litestream.yml
+  - curl -fsSL -o /tmp/litestream.deb https://github.com/benbjohnson/litestream/releases/download/v${litestream_version}/litestream-${litestream_version}-linux-x86_64.deb
+  # --force-confold keeps the /etc/litestream.yml written above.
+  - dpkg --force-confold -i /tmp/litestream.deb
+  # A new server for an existing deployment starts from the backup; a first one starts empty.
+  - runuser -u postilla -- litestream restore -if-db-not-exists -if-replica-exists /var/lib/postilla/postilla.db
+%{ if binary_url != "" ~}
+  - curl -fsSL -o /usr/local/bin/postilla-server ${binary_url}
+  - chmod 0755 /usr/local/bin/postilla-server
+%{ endif ~}
+  - systemctl daemon-reload
+  - systemctl enable --now litestream
+  - systemctl enable --now postilla-server
+  - systemctl reload caddy

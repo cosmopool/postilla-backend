@@ -4,3 +4,10 @@ cli.env
 zig-out/
 coverage/
 zig-pkg/
+
+# Terraform
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/terraform.tfvars
+infra/backend.hcl

@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars (git ignores it) and fill in.
+cloudflare_account_id = "0123456789abcdef0123456789abcdef"
+zone_id               = "0123456789abcdef0123456789abcdef" # kaiodelphino.com
+api_hostname          = "api.postilla.kaiodelphino.com"
+# files_hostname      = "files.postilla.kaiodelphino.com"
+ssh_public_key        = "ssh-ed25519 AAAA... you@laptop"
+# ssh_allowed_cidrs   = ["203.0.113.7/32"]
+# server_binary_url   = "https://github.com/cosmopool/postilla-backend/releases/download/v1.0.0/postilla-server"

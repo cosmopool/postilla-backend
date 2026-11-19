@@ -559,6 +559,7 @@ Everything comes from env, read and checked once at startup. A missing required 
 - One small Linux VPS runs the static `postilla-server` binary under systemd, with the env from a root-only file. The VPS holds only the author token: the OpenCode, Speechify and R2 keys stay on the machine that runs the CLI.
 - Caddy in front terminates TLS and proxies to `127.0.0.1:8080`.
 - Litestream streams the SQLite WAL to R2 continuously, so a lost VPS restores to within seconds. The backup goes to a separate **private** bucket, never the public story bucket.
+- [`infra/`](../infra/README.md) is the Terraform for all of it: the two R2 buckets, one R2 token per bucket (the CLI's for the story bucket, Litestream's for the backup bucket), the Hetzner Cloud VPS with its firewall, and the `api.postilla.kaiodelphino.com` DNS record. Its cloud-init installs Caddy, Litestream and the systemd unit, and restores `postilla.db` from the backup bucket on a new server. Its state is in a third, private R2 bucket. The binary is a static `x86_64-linux-musl` build, copied to the server.
 
 ## Tests
 
