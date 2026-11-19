@@ -257,7 +257,7 @@ postilla narrate   <folder>                             narrate every language w
 postilla publish   <folder>                             build the .tilla files, upload to R2, POST /stories
 ```
 
-The CLI reads the lists from the server's public endpoints (`GET /languages`, `GET /genres`, `GET /tags`, `GET /authors` at `POSTILLA_SERVER_URL`), so it never needs `postilla.db`. A command that fails prints one line naming the step and the reason and exits non-zero, leaving `story.json` as it was before that step. The exit code is 0 on success, 1 on any failure and 2 for a usage error (an unknown command, a missing folder, an unknown or repeated flag, or `--redo` without a language).
+The CLI reads the lists from the server's public endpoints (`GET /languages`, `GET /genres`, `GET /tags`, `GET /authors` at `POSTILLA_SERVER_URL`), so it never needs `postilla.db`. A command that fails prints one line naming the step and the reason and exits non-zero, leaving `story.json` as it was before that step. The exit code is 0 on success, 1 on any failure and 2 for a usage error (an unknown command, a missing folder, an unknown or repeated flag, or `--redo` without a language). `postilla --help` (or `-h`, or `help`) prints what each command does, the story folder, the configuration and the exit codes to stdout and exits 0; a usage error prints the short usage to stderr and points to `--help`.
 
 ### Story folder
 
