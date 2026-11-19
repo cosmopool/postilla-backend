@@ -1,0 +1,4 @@
+# Copy to backend.hcl (git ignores it) and run `terraform init -backend-config=backend.hcl`.
+# The state bucket's key pair goes in AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, not here.
+bucket    = "postilla-tfstate"
+endpoints = { s3 = "https://<account_id>.r2.cloudflarestorage.com" }

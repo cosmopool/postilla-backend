@@ -484,15 +484,4 @@ The feature: the worker picks the lemma each ambiguous word has in its sentence,
 
 ### Infrastructure as code
 
-Today the pieces [Deployment](specification.md#deployment) needs are set up by hand: the VPS, the public story bucket and the private Litestream bucket in R2, an R2 API token per bucket (the CLI's for the story bucket, Litestream's for the backup bucket), and the DNS record Caddy serves. A small Terraform configuration would make them reproducible, so rebuilding the server or adding a second environment is one `terraform apply` instead of a checklist.
-
-Proposed:
-
-- **Scope:** the Cloudflare provider for the two R2 buckets, their per-bucket tokens and the DNS record; the VPS host's provider for the server itself. The binary, its systemd unit, Caddy's config and Litestream's stay as they are, installed by a cloud-init script or by hand.
-- **Not Kubernetes:** `postilla.db` is one SQLite file with one writer, and the cursor rule relies on its write lock, so the server runs as a single process on one VPS. A cluster adds nothing at this size.
-
-Still open:
-
-1. Which VPS host, which decides the second provider.
-2. Where the Terraform state lives. It holds the R2 tokens, so it must not sit in the public bucket: a private R2 bucket as an S3 backend, or a state service.
-3. Whether the CLI's and the content build's R2 tokens are managed here too, or stay created by hand.
+Done: [`infra/`](../infra/README.md) (Terraform, Cloudflare and Hetzner Cloud providers, state in a private R2 bucket). Still open: whether the postilla-content build's R2 token is managed there too.
