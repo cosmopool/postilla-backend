@@ -17,6 +17,83 @@ const usage =
     \\  narrate   <folder>                             narrate every language with target 1
     \\  publish   <folder>                             build the .tilla files, upload to R2, POST /stories
     \\
+    \\Run `postilla --help` for what each command does, the story folder and the configuration.
+    \\
+;
+
+/// `postilla --help` (specification.md, The CLI).
+const help =
+    \\postilla: moderate, translate, narrate and publish one Postilla story.
+    \\
+    \\Usage:
+    \\  postilla <command> <folder> [options]
+    \\  postilla --help
+    \\
+    \\Every command works on one story folder. It reads <folder>/story.json, checks it
+    \\(the story.json rules in the spec), and writes its results back there, so any
+    \\step can be rerun on its own and you can read and edit the files between steps.
+    \\Keep the story folders in git.
+    \\
+    \\Commands:
+    \\  translate <folder> [--force] [--redo <lang>]
+    \\      Moderates the Italian (title, subtitle, sentences) with Jev, then
+    \\      translates it with DeepSeek into every language the server marks with
+    \\      translate 1 that story.json lacks, paragraph by paragraph. Translations
+    \\      already there are kept, so hand edits survive a rerun. Writes the scores
+    \\      to `moderation` and each finished language to `translations`. Does
+    \\      nothing when no language is missing.
+    \\        --force        translate even when moderation rejects the text; the
+    \\                       scores are written with forced: true
+    \\        --redo <lang>  drop <lang> (one with translate 1) and translate it again
+    \\
+    \\  narrate <folder>
+    \\      Narrates every translation in a language the server marks with target 1
+    \\      (today the Italian) with Speechify. Writes <lang>.opus (the app's audio),
+    \\      <lang>.flac (the lossless master) and, in story.json, `audio`: its length,
+    \\      the sha256 of the text it read and one [start_ms, end_ms] per sentence.
+    \\      Rerun it after changing a translation's sentences. Listen to the .opus
+    \\      before publishing.
+    \\
+    \\  publish <folder>
+    \\      Checks the story against the server's genres, tags, authors and
+    \\      languages, that every language with translate 1 is translated and every
+    \\      target is narrated from its current text, then builds one .tilla per
+    \\      translation, uploads the .tilla.gz, .opus and .flac files to R2 and
+    \\      publishes the story with POST /stories.
+    \\
+    \\Story folder:
+    \\  story.json             the story: header fields, every translation,
+    \\                         moderation scores, narration times
+    \\  <lang>.opus, .flac     written by narrate
+    \\
+    \\Configuration:
+    \\  Read from the environment, then from ./cli.env (KEY=value lines, # comments);
+    \\  a variable set in the environment wins. See cli.env.example.
+    \\  Required:
+    \\    POSTILLA_SERVER_URL            base URL of postilla-server
+    \\    POSTILLA_AUTHOR_TOKEN          the server's token, for POST /stories
+    \\    POSTILLA_OPENCODE_KEY          OpenCode key (Jev, DeepSeek)
+    \\    POSTILLA_SPEECHIFY_KEY         Speechify key
+    \\    POSTILLA_R2_ACCOUNT_ID         Cloudflare account id
+    \\    POSTILLA_R2_ACCESS_KEY_ID      R2 S3 access key id
+    \\    POSTILLA_R2_SECRET_ACCESS_KEY  R2 S3 secret key
+    \\    POSTILLA_R2_BUCKET             the public bucket (stories, dictionary)
+    \\  Optional:
+    \\    POSTILLA_R2_ENDPOINT           R2's S3 URL; default https://<account>.r2.cloudflarestorage.com
+    \\    POSTILLA_OPENCODE_URL          default https://opencode.ai/inference
+    \\    POSTILLA_SPEECHIFY_URL         default https://api.speechify.ai
+    \\    POSTILLA_DICT_DIR              where dict.db is cached; default ./dict
+    \\    POSTILLA_MODERATION_THRESHOLD  minimum P(none) to pass, 0 to 1; default 0.9
+    \\
+    \\Outside calls get 4 tries (waits of 5 s, 30 s, 2 min) on a network error, a
+    \\timeout, a 429 or a 5xx.
+    \\
+    \\Exit codes:
+    \\  0  done (and for --help)
+    \\  1  a step failed: one line on stderr names it; story.json is left as it
+    \\     was before that step
+    \\  2  usage error
+    \\
 ;
 
 pub fn main(init: std.process.Init) !void {
@@ -31,6 +108,11 @@ pub fn run(io: Io, arena: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir,
     var buf: [4096]u8 = undefined;
     var out = Io.File.stderr().writerStreaming(io, &buf);
     defer out.interface.flush() catch {};
+    if (args.len == 2 and (std.mem.eql(u8, args[1], "--help") or std.mem.eql(u8, args[1], "-h") or std.mem.eql(u8, args[1], "help"))) {
+        var stdout = Io.File.stdout().writerStreaming(io, &.{});
+        stdout.interface.writeAll(help) catch {};
+        return 0;
+    }
     var ok = (args.len == 3 and (std.mem.eql(u8, args[1], "publish") or std.mem.eql(u8, args[1], "narrate"))) or (args.len >= 3 and std.mem.eql(u8, args[1], "translate"));
     var force = false;
     var redo: []const u8 = "";
