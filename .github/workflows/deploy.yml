@@ -43,13 +43,13 @@ jobs:
 
       - run: zig build test
 
+      # As deploy, whose key runs only postilla-update (infra/README.md, GitHub Actions).
       - name: Deploy
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET }}
         run: |
           install -d -m 0700 ~/.ssh
           grep -v '^#' infra/known_hosts > ~/.ssh/known_hosts
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 0600 ~/.ssh/deploy_key
-          POSTILLA_DEPLOY_KEY=~/.ssh/deploy_key infra/deploy.sh "$SERVER" "$DEPLOY_TARGET"
+          POSTILLA_DEPLOY_KEY=~/.ssh/deploy_key infra/deploy.sh "$SERVER" deploy@api.postilla.kaiodelphino.com

@@ -157,14 +157,18 @@ ssh root@… journalctl -u postilla-server -u litestream -u caddy -n 50
 - Production is manual: Actions → deploy → Run workflow, pick the tag under "Use workflow
   from" and `production`. A run on a branch fails before it deploys.
 
-The job runs in the GitHub environment named after the server (`staging`, `production`).
-Each holds:
-
-- `DEPLOY_SSH_KEY` (secret): the private key the job logs in with.
-- `DEPLOY_TARGET` (variable, optional): `user@host`; empty means deploy.sh's default.
+The job logs in as `deploy@api.postilla.kaiodelphino.com` with the repository secret
+`DEPLOY_SSH_KEY`, the private half of `deploy_ssh_public_key` (`~/.ssh/postilla-deploy`).
+That key can do one thing: cloud-init writes it to `/home/deploy/.ssh/authorized_keys` as
+`restrict,command="sudo /usr/local/sbin/postilla-update …"`, which runs `postilla-update`
+with the last word of the requested command, and `/etc/sudoers.d/postilla-deploy` allows
+only `postilla-update production` and `postilla-update staging`. Root owns both files, so
+the deploy user can't lift the limit; any other command fails at sudo. A leaked key can
+install a binary, which still has to answer `GET /languages`, and nothing else.
 
 The server's host key is pinned in `infra/known_hosts`, so the job refuses any other
-server. Required reviewers on the `production` environment add an approval step.
+server. It runs in the GitHub environment named after the server (`staging`,
+`production`); required reviewers on `production` add an approval step.
 
 ## Restoring
 
