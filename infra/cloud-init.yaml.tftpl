@@ -60,6 +60,19 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
+  # CI's login (.github/workflows/deploy.yml): its key runs only postilla-update with the last
+  # word of the requested command, and sudo allows only the two servers. Root owns the file,
+  # so the deploy user can't lift the limit.
+  - path: /home/deploy/.ssh/authorized_keys
+    permissions: "0644"
+    content: |
+      restrict,command="sudo /usr/local/sbin/postilla-update \"$${SSH_ORIGINAL_COMMAND##* }\"" ${deploy_ssh_public_key}
+
+  - path: /etc/sudoers.d/postilla-deploy
+    permissions: "0440"
+    content: |
+      deploy ALL=(root) NOPASSWD: /usr/local/sbin/postilla-update production, /usr/local/sbin/postilla-update staging
+
   - path: /etc/postilla/staging.env
     owner: root:root
     permissions: "0600"
@@ -172,6 +185,8 @@ runcmd:
   - install -d -o postilla -g postilla -m 0750 /var/lib/postilla
   - useradd --system --home-dir /var/lib/postilla-staging --shell /usr/sbin/nologin postilla-staging
   - install -d -o postilla-staging -g postilla-staging -m 0750 /var/lib/postilla-staging
+  # A shell for the forced command only: no password, and its key runs nothing else.
+  - useradd --system --home-dir /home/deploy --no-create-home --shell /bin/sh deploy
   - chown postilla:postilla /etc/litestream.yml
   - install -d -m 0700 /var/lib/postilla-egress-guard
   # vnstat saves its counters every 5 minutes by default; every minute keeps the guard close.

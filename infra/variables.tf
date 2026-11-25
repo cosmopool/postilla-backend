@@ -73,6 +73,11 @@ variable "ssh_public_key" {
   type        = string
 }
 
+variable "deploy_ssh_public_key" {
+  description = "Public key CI logs in with as deploy; it can only run postilla-update (infra/README.md, GitHub Actions)."
+  type        = string
+}
+
 variable "ssh_allowed_cidrs" {
   description = "Source ranges allowed to reach port 22. Narrow this to your own address."
   type        = list(string)

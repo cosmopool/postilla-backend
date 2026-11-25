@@ -161,18 +161,19 @@ resource "vultr_instance" "api" {
   activation_email = false
 
   user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
-    api_hostname       = var.api_hostname
-    author_token       = random_password.author_token.result
-    binary_url         = var.server_binary_url
-    litestream_version = var.litestream_version
-    r2_host            = local.r2_host
-    backup_bucket      = cloudflare_r2_bucket.backup.name
-    litestream_key_id  = cloudflare_account_token.litestream.id
-    litestream_secret  = local.litestream_secret
-    egress_limit_gb    = var.egress_limit_gb
-    postilla_update    = file("${path.module}/postilla-update")
-    staging_hostname   = var.staging_api_hostname
-    staging_token      = random_password.staging_author_token.result
+    api_hostname          = var.api_hostname
+    author_token          = random_password.author_token.result
+    binary_url            = var.server_binary_url
+    litestream_version    = var.litestream_version
+    r2_host               = local.r2_host
+    backup_bucket         = cloudflare_r2_bucket.backup.name
+    litestream_key_id     = cloudflare_account_token.litestream.id
+    litestream_secret     = local.litestream_secret
+    egress_limit_gb       = var.egress_limit_gb
+    postilla_update       = file("${path.module}/postilla-update")
+    staging_hostname      = var.staging_api_hostname
+    staging_token         = random_password.staging_author_token.result
+    deploy_ssh_public_key = var.deploy_ssh_public_key
   })
 
   # postilla.db lives on this disk: never replace or wipe the server by accident. A changed
