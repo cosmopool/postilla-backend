@@ -155,6 +155,12 @@ resource "vultr_instance" "api" {
 
 # --- DNS ---------------------------------------------------------------------
 
+locals {
+  # Vultr writes the address with leading zeros (07ff); Cloudflare stores it canonical (7ff),
+  # so the raw value would show as a change on every plan.
+  server_ipv6 = cidrhost("${vultr_instance.api.v6_main_ip}/128", 0)
+}
+
 # Not proxied: Caddy terminates TLS itself, with its own certificate for api_hostname.
 resource "cloudflare_dns_record" "api_a" {
   zone_id = var.zone_id
@@ -169,7 +175,7 @@ resource "cloudflare_dns_record" "api_aaaa" {
   zone_id = var.zone_id
   name    = var.api_hostname
   type    = "AAAA"
-  content = vultr_instance.api.v6_main_ip
+  content = local.server_ipv6
   ttl     = 300
   proxied = false
 }
