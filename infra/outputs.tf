@@ -3,11 +3,11 @@ output "api_url" {
 }
 
 output "server_ipv4" {
-  value = hcloud_server.api.ipv4_address
+  value = vultr_instance.api.main_ip
 }
 
 output "server_ipv6" {
-  value = hcloud_server.api.ipv6_address
+  value = vultr_instance.api.v6_main_ip
 }
 
 output "files_url" {

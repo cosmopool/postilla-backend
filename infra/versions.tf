@@ -3,7 +3,7 @@ terraform {
 
   required_providers {
     cloudflare = { source = "cloudflare/cloudflare", version = "~> 5.29" }
-    hcloud     = { source = "hetznercloud/hcloud", version = "~> 1.70" }
+    vultr      = { source = "vultr/vultr", version = "~> 2.33" }
     random     = { source = "hashicorp/random", version = "~> 3.7" }
   }
 
@@ -24,6 +24,6 @@ terraform {
   }
 }
 
-# Both read their token from the environment: CLOUDFLARE_API_TOKEN and HCLOUD_TOKEN.
+# Both read their key from the environment: CLOUDFLARE_API_TOKEN and VULTR_API_KEY.
 provider "cloudflare" {}
-provider "hcloud" {}
+provider "vultr" {}

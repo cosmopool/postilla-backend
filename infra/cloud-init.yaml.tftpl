@@ -4,12 +4,22 @@
 # the private backup bucket. A rebuilt server restores postilla.db from that bucket first.
 package_update: true
 package_upgrade: true
+# Vultr's billing month is the calendar month in UTC; vnstat's months follow the local time.
+timezone: Etc/UTC
 packages:
   - caddy
   - sqlite3
   - curl
+  - vnstat
 
 write_files:
+  # SSH takes keys only, whatever the image allows: sshd keeps the first value it reads, and
+  # 00- sorts before any drop-in the image or cloud-init ships.
+  - path: /etc/ssh/sshd_config.d/00-postilla.conf
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+
   # The only secret the VPS holds besides Litestream's own key.
   - path: /etc/postilla/env
     owner: root:root
@@ -78,10 +88,51 @@ write_files:
         reverse_proxy 127.0.0.1:8080
       }
 
+  # Vultr bills outbound traffic past the allowance per GB, with no cap. Once this month's
+  # outbound bytes reach the limit, the API goes dark until the month turns over. vnstat counts
+  # every byte the interface sends, so it never undercounts what Vultr bills.
+  - path: /usr/local/sbin/postilla-egress-guard
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -eu
+      limit=${egress_limit_gb}000000000
+      flag=/var/lib/postilla-egress-guard/stopped
+      iface=$(ip route show default | awk '{print $5; exit}')
+      # Field 10 of the one-line output is this month's tx, in bytes.
+      tx=$(vnstat -i "$iface" --oneline b | cut -d';' -f10)
+      case $tx in ''|*[!0-9]*) exit 0 ;; esac
+      if [ "$tx" -ge "$limit" ]; then
+        if systemctl is-active --quiet caddy; then
+          systemctl stop caddy
+          touch "$flag"
+          logger -t postilla-egress-guard "stopped caddy: $tx bytes out this month, limit $limit"
+        fi
+      elif [ -e "$flag" ]; then
+        rm "$flag"
+        systemctl start caddy
+        logger -t postilla-egress-guard "started caddy: new month, $tx bytes out"
+      fi
+
+  # The server side of infra/deploy.sh: installs a new binary from stdin, rolls back on failure.
+  - path: /usr/local/sbin/postilla-update
+    permissions: "0755"
+    content: |
+      ${indent(6, postilla_update)}
+  - path: /etc/cron.d/postilla-egress-guard
+    content: |
+      PATH=/usr/sbin:/usr/bin:/sbin:/bin
+      * * * * * root /usr/local/sbin/postilla-egress-guard
+
 runcmd:
+  - systemctl try-reload-or-restart ssh
   - useradd --system --home-dir /var/lib/postilla --shell /usr/sbin/nologin postilla
   - install -d -o postilla -g postilla -m 0750 /var/lib/postilla
   - chown postilla:postilla /etc/litestream.yml
+  - install -d -m 0700 /var/lib/postilla-egress-guard
+  # vnstat saves its counters every 5 minutes by default; every minute keeps the guard close.
+  - sed -i 's/^;\?SaveInterval .*/SaveInterval 1/' /etc/vnstat.conf
+  - systemctl restart vnstat
   - curl -fsSL -o /tmp/litestream.deb https://github.com/benbjohnson/litestream/releases/download/v${litestream_version}/litestream-${litestream_version}-linux-x86_64.deb
   # --force-confold keeps the /etc/litestream.yml written above.
   - dpkg --force-confold -i /tmp/litestream.deb
@@ -94,4 +145,7 @@ runcmd:
   - systemctl daemon-reload
   - systemctl enable --now litestream
   - systemctl enable --now postilla-server
+  # Vultr's Ubuntu image enables ufw with SSH only; the Vultr firewall group already filters.
+  - ufw allow 80/tcp
+  - ufw allow 443
   - systemctl reload caddy

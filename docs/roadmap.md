@@ -484,4 +484,4 @@ The feature: the worker picks the lemma each ambiguous word has in its sentence,
 
 ### Infrastructure as code
 
-Done: [`infra/`](../infra/README.md) (Terraform, Cloudflare and Hetzner Cloud providers, state in a private R2 bucket). Still open: whether the postilla-content build's R2 token is managed there too.
+Done: [`infra/`](../infra/README.md) (OpenTofu, Cloudflare and Vultr providers, state in a private R2 bucket). Still open: whether the postilla-content build's R2 token is managed there too.

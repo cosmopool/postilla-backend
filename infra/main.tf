@@ -80,62 +80,57 @@ resource "random_password" "author_token" {
 
 # --- VPS ---------------------------------------------------------------------
 
-resource "hcloud_ssh_key" "admin" {
-  name       = "postilla-admin"
-  public_key = var.ssh_public_key
+resource "vultr_ssh_key" "admin" {
+  name    = "postilla-admin"
+  ssh_key = var.ssh_public_key
 }
 
-resource "hcloud_firewall" "server" {
-  name = "postilla-server"
+resource "vultr_firewall_group" "server" {
+  description = "postilla-server"
+}
 
-  rule {
-    description = "SSH"
-    direction   = "in"
-    protocol    = "tcp"
-    port        = "22"
-    source_ips  = var.ssh_allowed_cidrs
-  }
-  rule {
-    description = "HTTP (ACME challenge, redirect to HTTPS)"
-    direction   = "in"
-    protocol    = "tcp"
-    port        = "80"
-    source_ips  = ["0.0.0.0/0", "::/0"]
-  }
-  rule {
-    description = "HTTPS"
-    direction   = "in"
-    protocol    = "tcp"
-    port        = "443"
-    source_ips  = ["0.0.0.0/0", "::/0"]
-  }
-  rule {
-    description = "HTTP/3"
-    direction   = "in"
-    protocol    = "udp"
-    port        = "443"
-    source_ips  = ["0.0.0.0/0", "::/0"]
-  }
-  rule {
-    description = "Ping"
-    direction   = "in"
-    protocol    = "icmp"
-    source_ips  = ["0.0.0.0/0", "::/0"]
+locals {
+  anywhere = ["0.0.0.0/0", "::/0"]
+  # Vultr takes one rule per protocol, port and source range.
+  firewall_rules = merge(
+    { for c in var.ssh_allowed_cidrs : "ssh ${c}" => { notes = "SSH", protocol = "tcp", port = "22", cidr = c } },
+    { for c in local.anywhere : "http ${c}" => { notes = "HTTP (ACME challenge, redirect to HTTPS)", protocol = "tcp", port = "80", cidr = c } },
+    { for c in local.anywhere : "https ${c}" => { notes = "HTTPS", protocol = "tcp", port = "443", cidr = c } },
+    { for c in local.anywhere : "http3 ${c}" => { notes = "HTTP/3", protocol = "udp", port = "443", cidr = c } },
+    { for c in local.anywhere : "ping ${c}" => { notes = "Ping", protocol = "icmp", port = null, cidr = c } },
+  )
+}
+
+resource "vultr_firewall_rule" "server" {
+  for_each          = local.firewall_rules
+  firewall_group_id = vultr_firewall_group.server.id
+  notes             = each.value.notes
+  protocol          = each.value.protocol
+  port              = each.value.port
+  ip_type           = strcontains(each.value.cidr, ":") ? "v6" : "v4"
+  subnet            = split("/", each.value.cidr)[0]
+  subnet_size       = tonumber(split("/", each.value.cidr)[1])
+}
+
+data "vultr_os" "server" {
+  filter {
+    name   = "name"
+    values = [var.server_image]
   }
 }
 
-resource "hcloud_server" "api" {
-  name         = "postilla-api"
-  server_type  = var.server_type
-  location     = var.server_location
-  image        = var.server_image
-  ssh_keys     = [hcloud_ssh_key.admin.id]
-  firewall_ids = [hcloud_firewall.server.id]
-
-  public_net {
-    ipv4_enabled = true
-    ipv6_enabled = true
-  }
+resource "vultr_instance" "api" {
+  label             = "postilla-api"
+  hostname          = "postilla-api"
+  plan              = var.server_type
+  region            = var.server_location
+  os_id             = data.vultr_os.server.id
+  enable_ipv6       = true
+  ssh_key_ids       = [vultr_ssh_key.admin.id]
+  firewall_group_id = vultr_firewall_group.server.id
+  # Litestream to R2 is the backup; Vultr's snapshots would add 20% to the bill.
+  backups          = "disabled"
+  activation_email = false
 
   user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
     api_hostname       = var.api_hostname
@@ -146,14 +141,15 @@ resource "hcloud_server" "api" {
     backup_bucket      = cloudflare_r2_bucket.backup.name
     litestream_key_id  = cloudflare_account_token.litestream.id
     litestream_secret  = local.litestream_secret
+    egress_limit_gb    = var.egress_limit_gb
+    postilla_update    = file("${path.module}/postilla-update")
   })
 
   # postilla.db lives on this disk: never replace or wipe the server by accident. A changed
   # cloud-init only matters for a new server, so it doesn't force one either.
-  delete_protection  = true
-  rebuild_protection = true
   lifecycle {
-    ignore_changes = [user_data, image]
+    prevent_destroy = true
+    ignore_changes  = [user_data, os_id]
   }
 }
 
@@ -164,7 +160,7 @@ resource "cloudflare_dns_record" "api_a" {
   zone_id = var.zone_id
   name    = var.api_hostname
   type    = "A"
-  content = hcloud_server.api.ipv4_address
+  content = vultr_instance.api.main_ip
   ttl     = 300
   proxied = false
 }
@@ -173,7 +169,7 @@ resource "cloudflare_dns_record" "api_aaaa" {
   zone_id = var.zone_id
   name    = var.api_hostname
   type    = "AAAA"
-  content = hcloud_server.api.ipv6_address
+  content = vultr_instance.api.v6_main_ip
   ttl     = 300
   proxied = false
 }

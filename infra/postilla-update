@@ -1,0 +1,47 @@
+#!/bin/sh
+# Installs the postilla-server binary read from stdin, the server side of infra/deploy.sh.
+# The running binary stays as postilla-server.prev; when the new one doesn't answer
+# GET /languages within 10 s of the restart, the previous one goes back and this exits 1.
+# Runs as root (directly or through sudo); cloud-init installs it as
+# /usr/local/sbin/postilla-update.
+set -eu
+bin=/usr/local/bin/postilla-server
+
+# One update at a time: a local deploy and a CI one could overlap.
+exec 9>/run/postilla-update.lock
+flock -n 9 || { echo "postilla-update: another update is running" >&2; exit 1; }
+
+cat > "$bin.new"
+if [ "$(od -An -tx1 -N4 "$bin.new" | tr -d ' \n')" != 7f454c46 ]; then
+  rm -f "$bin.new"
+  echo "postilla-update: stdin is not an ELF binary" >&2
+  exit 1
+fi
+chmod 0755 "$bin.new"
+# The hard link keeps the old binary as .prev; the rename swaps the new one in at once.
+[ -e "$bin" ] && ln -f "$bin" "$bin.prev"
+mv "$bin.new" "$bin"
+systemctl restart postilla-server
+
+up() {
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    curl -fs -o /dev/null http://127.0.0.1:8080/languages && return 0
+    sleep 0.5
+  done
+  return 1
+}
+
+if up; then
+  echo "postilla-update: postilla-server is up"
+  logger -t postilla-update "installed a new postilla-server"
+  exit 0
+fi
+echo "postilla-update: the new postilla-server did not answer GET /languages" >&2
+journalctl -u postilla-server -n 20 --no-pager >&2 || true
+if [ -e "$bin.prev" ]; then
+  mv "$bin.prev" "$bin"
+  systemctl restart postilla-server
+  up && echo "postilla-update: rolled back to the previous postilla-server" >&2
+fi
+logger -t postilla-update "a new postilla-server failed to start; rolled back"
+exit 1

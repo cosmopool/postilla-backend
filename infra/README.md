@@ -10,25 +10,27 @@ Terraform for everything [Deployment](../docs/specification.md#deployment) needs
 | `cloudflare_account_token.cli` | The CLI's R2 key: objects in the story bucket only |
 | `cloudflare_account_token.litestream` | Litestream's R2 key: objects in the backup bucket only |
 | `random_password.author_token` | The bearer token for `POST /stories` and `DELETE /stories/<id>` |
-| `hcloud_server.api` | The VPS (Hetzner Cloud, Ubuntu 24.04), set up by `cloud-init.yaml.tftpl` |
-| `hcloud_firewall.server` | 22 from `ssh_allowed_cidrs`; 80 and 443 from anywhere |
+| `vultr_instance.api` | The VPS (Vultr `vc2-1c-1gb` in São Paulo, Ubuntu 24.04), set up by `cloud-init.yaml.tftpl` |
+| `vultr_firewall_group.server`, `vultr_firewall_rule.server` | 22 from `ssh_allowed_cidrs`; 80 and 443 from anywhere |
 | `cloudflare_dns_record.api_a`, `api_aaaa` | `api.postilla.kaiodelphino.com` → the VPS, not proxied (Caddy does TLS) |
 
 cloud-init installs Caddy, Litestream and the `postilla-server` systemd unit on first boot,
 writes `/etc/postilla/env` (root-only, the author token), and restores `postilla.db` from
-the backup bucket when the bucket already holds one. Terraform doesn't deploy the binary
+the backup bucket when the bucket already holds one. It also installs the egress guard
+(see Notes). Terraform doesn't deploy the binary
 after that, and changing cloud-init doesn't touch a running server.
 
 ## You need
 
-- Terraform ≥ 1.10 (or OpenTofu ≥ 1.10).
+- OpenTofu ≥ 1.10. The lock file names OpenTofu's registry; Terraform ≥ 1.10 works too after `terraform init -upgrade`.
 - The domain's DNS on Cloudflare (the `kaiodelphino.com` zone), and its zone id.
 - A Cloudflare API token for Terraform, with:
   - Account → Workers R2 Storage: Edit
   - Account → Account API Tokens: Edit
   - Zone → DNS: Edit, on `kaiodelphino.com`
   - Zone → Zone: Read, on `kaiodelphino.com` (for `files_hostname`)
-- A Hetzner Cloud project and an API token for it (read & write).
+- A Vultr account and its API key (Account → API → Enable API), with your address allowed
+  under the key's Access Control.
 - An SSH key pair.
 
 ## Before the first apply
@@ -43,20 +45,33 @@ hand once (Terraform can't create the bucket that holds its own state):
    ```bash
    cp backend.hcl.example backend.hcl            # set your account id in the endpoint
    cp terraform.tfvars.example terraform.tfvars  # account id, zone id, SSH key
+   cp .env.example .env                          # the four keys below
    ```
-   Both are git-ignored.
+   All three are git-ignored.
 
 ## Apply
 
-```bash
-export CLOUDFLARE_API_TOKEN=…           # the Terraform token above
-export HCLOUD_TOKEN=…
-export AWS_ACCESS_KEY_ID=…              # the postilla-tfstate key pair
-export AWS_SECRET_ACCESS_KEY=…
+`.env` holds the keys OpenTofu reads from the environment: `CLOUDFLARE_API_TOKEN` (the
+Terraform token above), `VULTR_API_KEY`, and `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY` (the postilla-tfstate key pair). Load it into the shell that runs
+`tofu`, from `infra/`. In bash:
 
-terraform init -backend-config=backend.hcl
-terraform plan
-terraform apply
+```bash
+set -a; . ./.env; set +a
+```
+
+In fish:
+
+```fish
+for l in (string match -rv '^\s*(#|$)' < .env); set -gx (string split -m1 = -- $l); end
+```
+
+Then:
+
+```bash
+tofu init -backend-config=backend.hcl
+tofu plan
+tofu apply
 ```
 
 Then the CLI's configuration: every value but the OpenCode and Speechify keys. Copy these
@@ -64,23 +79,35 @@ lines into `cli.env` over the old ones (don't redirect into it: that would drop 
 it already holds):
 
 ```bash
-terraform output -raw cli_env
+tofu output -raw cli_env
 ```
 
 ## Deploying the server
 
-The binary is static, so one build runs on any x86_64 Linux:
+`deploy.sh` makes the first deploy and every update. It builds the static
+`x86_64-linux-musl` binary and pipes it over SSH to `postilla-update` on the server, which:
+
+1. keeps the running binary as `/usr/local/bin/postilla-server.prev`,
+2. swaps the new one in with one rename and restarts `postilla-server`,
+3. waits up to 10 s for `GET /languages` on `127.0.0.1:8080`, and when it doesn't answer,
+   puts `.prev` back, restarts, and exits 1.
 
 ```bash
-zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl
-scp zig-out/bin/postilla-server root@$(terraform -chdir=infra output -raw server_ipv4):/usr/local/bin/
-ssh root@… 'chmod 0755 /usr/local/bin/postilla-server && systemctl restart postilla-server'
+POSTILLA_DEPLOY_KEY=~/.ssh/tumbler infra/deploy.sh   # root@api.postilla.kaiodelphino.com
+```
+
+`POSTILLA_DEPLOY_KEY` is optional (without it, ssh picks the key), and an argument
+overrides the target, e.g. `infra/deploy.sh root@216.238.123.227`. One update runs at a
+time. cloud-init installs `postilla-update` (from `infra/postilla-update`) on a new
+server; on the running one, an edit to it is installed by hand:
+
+```bash
+ssh root@… 'install -m 0755 /dev/stdin /usr/local/sbin/postilla-update' < infra/postilla-update
 ```
 
 On first boot without `server_binary_url` the unit waits for the binary (its
-`ConditionPathExists` fails until then), so the first deploy is the same `scp` and
-`systemctl restart`. Once a release URL exists, set `server_binary_url` and new servers
-fetch it themselves.
+`ConditionPathExists` fails until then), so the first deploy is `deploy.sh` too. Once a
+release URL exists, set `server_binary_url` and new servers fetch it themselves.
 
 Check it:
 
@@ -95,7 +122,7 @@ ssh root@… journalctl -u postilla-server -u litestream -u caddy -n 50
 the server, remove its protection and replace it:
 
 ```bash
-terraform apply -replace=hcloud_server.api   # after turning delete_protection off in the console
+tofu apply -replace=vultr_instance.api   # after deleting prevent_destroy in main.tf
 ```
 
 The new server's cloud-init restores the database from the backup before the server starts.
@@ -103,10 +130,24 @@ Cursors lost in the last second follow the rule in specification.md, Cursor.
 
 ## Notes
 
-- `delete_protection` and `rebuild_protection` are on: the disk holds `postilla.db`.
+- SSH takes keys only: `/etc/ssh/sshd_config.d/00-postilla.conf` turns password and
+  keyboard-interactive logins off. Port 22 is open to `ssh_allowed_cidrs`, the whole internet
+  by default; narrowing it changes firewall rules only, not the server.
+- `prevent_destroy` is on: the disk holds `postilla.db`, and Vultr has no delete protection
+  of its own.
 - An R2 key pair is derived from its token: the access key id is the token's id and the
   secret is the sha256 of its value (`main.tf`, `locals`).
-- The VPS's user data holds the author token and Litestream's key; Hetzner's metadata
+- The VPS's user data holds the author token and Litestream's key; Vultr's metadata
   service shows it only to the server itself.
-- `server_type` `cx22` is x86_64 (2 vCPU, 4 GB, about €4/month). An Arm `cax` type needs an
-  `aarch64-linux-musl` build and the Litestream `arm64` package.
+- The egress guard caps the bill. Vultr charges $0.01/GB for outbound traffic past the
+  account's allowance and has no cap of its own, so a flood of requests could run one up.
+  `/usr/local/sbin/postilla-egress-guard` runs from cron every minute. It reads this
+  month's outbound bytes from vnstat, and at `egress_limit_gb` (2,900 GB of 10^9 bytes, under the
+  allowance: 2 TB free per account plus the plan's 1 TB, accrued hourly) it stops Caddy: the API is down, SSH and Litestream keep working. At the next month (UTC,
+  like Vultr's billing) it starts Caddy again. vnstat counts all the interface sends, which
+  is at least what Vultr bills. See it with `vnstat -m` and
+  `journalctl -t postilla-egress-guard`. To serve again before the month ends, raise the
+  `limit=` line in the script (`egress_limit_gb` in Terraform only reaches new servers).
+- `server_type` `vc2-1c-1gb` is x86_64 (1 vCPU, 1 GB, 25 GB, 1 TB of traffic, $5/month).
+  São Paulo (`sao`) is about 10 ms from Brazil; the app downloads stories from R2, so only
+  API calls pay the distance from Italy.

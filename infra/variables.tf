@@ -39,21 +39,21 @@ variable "r2_location" {
 }
 
 variable "server_type" {
-  description = "Hetzner Cloud server type. cx22: 2 vCPU, 4 GB, plenty for one SQLite writer."
+  description = "Vultr plan. vc2-1c-1gb: 1 vCPU, 1 GB, 25 GB, x86_64, plenty for one SQLite writer."
   type        = string
-  default     = "cx22"
+  default     = "vc2-1c-1gb"
 }
 
 variable "server_location" {
-  description = "Hetzner location: fsn1, nbg1, hel1 (EU), ash, hil (US), sin."
+  description = "Vultr region. sao: São Paulo, near the Brazilian learners."
   type        = string
-  default     = "fsn1"
+  default     = "sao"
 }
 
 variable "server_image" {
-  description = "OS image for the VPS."
+  description = "OS image for the VPS, by its Vultr name."
   type        = string
-  default     = "ubuntu-24.04"
+  default     = "Ubuntu 24.04 LTS x64"
 }
 
 variable "ssh_public_key" {
@@ -77,4 +77,15 @@ variable "litestream_version" {
   description = "Litestream release installed by cloud-init."
   type        = string
   default     = "0.5.18"
+}
+
+variable "egress_limit_gb" {
+  description = "Outbound traffic per calendar month (UTC), in GB of 10^9 bytes, at which the VPS stops Caddy until the next month. Below Vultr's allowance (2 TB free per account plus the plan's 1 TB), so an attack can't run up an overage bill."
+  type        = number
+  default     = 2900
+
+  validation {
+    condition     = var.egress_limit_gb > 0 && var.egress_limit_gb == floor(var.egress_limit_gb)
+    error_message = "egress_limit_gb must be a whole number of GB above 0."
+  }
 }
