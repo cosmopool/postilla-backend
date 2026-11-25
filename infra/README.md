@@ -114,21 +114,24 @@ env $(grep -v '^#' cli.staging.env) postilla publish …   # bash; in fish: env 
 
 ## Deploying the server
 
-`deploy.sh` makes the first deploy and every update. It builds the static
-`x86_64-linux-musl` binary and pipes it over SSH to `postilla-update` on the server, which:
+`deploy.sh` makes the first deploy and every update, to production or staging. It builds
+the static `x86_64-linux-musl` binary and pipes it over SSH to `postilla-update` on the
+server, which:
 
-1. keeps the running binary as `/usr/local/bin/postilla-server.prev`,
-2. swaps the new one in with one rename and restarts `postilla-server`,
-3. waits up to 10 s for `GET /languages` on `127.0.0.1:8080`, and when it doesn't answer,
-   puts `.prev` back, restarts, and exits 1.
+1. keeps the running binary as `.prev` (`/usr/local/bin/postilla-server.prev`, or
+   `postilla-server-staging.prev`),
+2. swaps the new one in with one rename and restarts the unit,
+3. waits up to 10 s for `GET /languages` on its port (8080 or 8081), and when it doesn't
+   answer, puts `.prev` back, restarts, and exits 1.
 
 ```bash
-POSTILLA_DEPLOY_KEY=~/.ssh/tumbler infra/deploy.sh   # root@api.postilla.kaiodelphino.com
+POSTILLA_DEPLOY_KEY=~/.ssh/tumbler infra/deploy.sh staging      # root@api.postilla.kaiodelphino.com
+POSTILLA_DEPLOY_KEY=~/.ssh/tumbler infra/deploy.sh production
 ```
 
-`POSTILLA_DEPLOY_KEY` is optional (without it, ssh picks the key), and an argument
-overrides the target, e.g. `infra/deploy.sh root@216.238.123.227`. One update runs at a
-time. cloud-init installs `postilla-update` (from `infra/postilla-update`) on a new
+`POSTILLA_DEPLOY_KEY` is optional (without it, ssh picks the key), and a second argument
+overrides the target, e.g. `infra/deploy.sh staging root@216.238.123.227`. One update runs
+at a time. cloud-init installs `postilla-update` (from `infra/postilla-update`) on a new
 server; on the running one, an edit to it is installed by hand:
 
 ```bash
