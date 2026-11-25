@@ -1,0 +1,55 @@
+# Tests and deploys postilla-server with infra/deploy.sh (infra/README.md, GitHub Actions).
+# A pushed version tag deploys to staging. Production is a manual run on a tag:
+# Actions → deploy → Run workflow, pick the tag and "production".
+name: deploy
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      server:
+        description: Server to deploy to
+        type: choice
+        options: [staging, production]
+        default: staging
+
+permissions:
+  contents: read
+
+# One deploy at a time; a queued one waits instead of cancelling the running one.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.server || 'staging' }}
+    env:
+      SERVER: ${{ inputs.server || 'staging' }}
+    steps:
+      - name: Production takes only a version tag
+        if: env.SERVER == 'production' && github.ref_type != 'tag'
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          echo "::error::production deploys a version tag; $REF is a branch"
+          exit 1
+
+      - uses: actions/checkout@v7
+      # The Zig version comes from minimum_zig_version in build.zig.zon.
+      - uses: mlugg/setup-zig@v2
+
+      - run: zig build test
+
+      - name: Deploy
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET }}
+        run: |
+          install -d -m 0700 ~/.ssh
+          grep -v '^#' infra/known_hosts > ~/.ssh/known_hosts
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 0600 ~/.ssh/deploy_key
+          POSTILLA_DEPLOY_KEY=~/.ssh/deploy_key infra/deploy.sh "$SERVER" "$DEPLOY_TARGET"

@@ -1,0 +1,3 @@
+# The VPS's SSH host key (/etc/ssh/ssh_host_ed25519_key.pub), for the deploy workflow.
+# A rebuilt server has a new one: replace this line (infra/README.md, Restoring).
+api.postilla.kaiodelphino.com,staging-api.postilla.kaiodelphino.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFnTIVCzj8ho1bKDo+rgiYBo/L+W0QZr9r5YAwd60n7M

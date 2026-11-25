@@ -149,6 +149,23 @@ curl -sS https://api.postilla.kaiodelphino.com/languages | head -c 4   # LANG
 ssh root@… journalctl -u postilla-server -u litestream -u caddy -n 50
 ```
 
+## GitHub Actions
+
+`.github/workflows/deploy.yml` runs `zig build test` and then `deploy.sh`:
+
+- Pushing a version tag (`git tag v1.2.0 && git push origin v1.2.0`) deploys it to staging.
+- Production is manual: Actions → deploy → Run workflow, pick the tag under "Use workflow
+  from" and `production`. A run on a branch fails before it deploys.
+
+The job runs in the GitHub environment named after the server (`staging`, `production`).
+Each holds:
+
+- `DEPLOY_SSH_KEY` (secret): the private key the job logs in with.
+- `DEPLOY_TARGET` (variable, optional): `user@host`; empty means deploy.sh's default.
+
+The server's host key is pinned in `infra/known_hosts`, so the job refuses any other
+server. Required reviewers on the `production` environment add an approval step.
+
 ## Restoring
 
 `postilla.db` is replicated to the backup bucket within a second of each write. To rebuild
@@ -160,7 +177,8 @@ tofu apply -replace=vultr_instance.api   # after deleting prevent_destroy in mai
 
 The new server's cloud-init restores the database from the backup before the server starts.
 Cursors lost in the last second follow the rule in specification.md, Cursor. Staging starts
-empty.
+empty. The new server has a new SSH host key: replace the line in `infra/known_hosts`
+(`ssh root@… cat /etc/ssh/ssh_host_ed25519_key.pub`), or the deploy workflow refuses it.
 
 ## Notes
 
