@@ -13,12 +13,33 @@ Terraform for everything [Deployment](../docs/specification.md#deployment) needs
 | `vultr_instance.api` | The VPS (Vultr `vc2-1c-1gb` in São Paulo, Ubuntu 24.04), set up by `cloud-init.yaml.tftpl` |
 | `vultr_firewall_group.server`, `vultr_firewall_rule.server` | 22 from `ssh_allowed_cidrs`; 80 and 443 from anywhere |
 | `cloudflare_dns_record.api_a`, `api_aaaa` | `api.postilla.kaiodelphino.com` → the VPS, not proxied (Caddy does TLS) |
+| `cloudflare_r2_bucket.staging_stories` | Staging's story bucket, `postilla-stories-staging` |
+| `cloudflare_account_token.cli_staging` | The CLI's R2 key against staging: objects in the staging story bucket only |
+| `random_password.staging_author_token` | Staging's bearer token, never valid on production |
+| `cloudflare_dns_record.staging_a`, `staging_aaaa` | `staging-api.postilla.kaiodelphino.com` → the same VPS |
 
 cloud-init installs Caddy, Litestream and the `postilla-server` systemd unit on first boot,
 writes `/etc/postilla/env` (root-only, the author token), and restores `postilla.db` from
 the backup bucket when the bucket already holds one. It also installs the egress guard
-(see Notes). Terraform doesn't deploy the binary
-after that, and changing cloud-init doesn't touch a running server.
+(see Notes) and staging (below). Terraform doesn't deploy the binary after that, and
+changing cloud-init doesn't touch a running server.
+
+## Staging
+
+Staging is a second `postilla-server` on the same VPS, with nothing shared but the machine:
+
+| | Production | Staging |
+|---|---|---|
+| URL | `https://api.postilla.kaiodelphino.com` | `https://staging-api.postilla.kaiodelphino.com` |
+| systemd unit, binary | `postilla-server` | `postilla-server-staging` |
+| User, data | `postilla`, `/var/lib/postilla` | `postilla-staging`, `/var/lib/postilla-staging` |
+| Port, env | 8080, `/etc/postilla/env` | 8081, `/etc/postilla/staging.env` |
+| Story bucket | `postilla-stories` | `postilla-stories-staging` |
+| Backup | Litestream to `postilla-backup` | none: staging data is disposable |
+
+They share the CPU, memory and the egress guard's monthly count: load on staging slows
+production, and the guard stops Caddy for both. `dict/` isn't in the staging bucket until
+it's copied there.
 
 ## You need
 
@@ -82,6 +103,15 @@ it already holds):
 tofu output -raw cli_env
 ```
 
+Staging's go in `cli.staging.env` (git-ignored), with the OpenCode and Speechify lines
+copied from `cli.env`. The CLI reads `./cli.env`, and the environment wins over it, so
+loading `cli.staging.env` into the environment points one command at staging:
+
+```bash
+tofu output -raw cli_env_staging
+env $(grep -v '^#' cli.staging.env) postilla publish …   # bash; in fish: env (grep -v '^#' cli.staging.env) …
+```
+
 ## Deploying the server
 
 `deploy.sh` makes the first deploy and every update. It builds the static
@@ -126,7 +156,8 @@ tofu apply -replace=vultr_instance.api   # after deleting prevent_destroy in mai
 ```
 
 The new server's cloud-init restores the database from the backup before the server starts.
-Cursors lost in the last second follow the rule in specification.md, Cursor.
+Cursors lost in the last second follow the rule in specification.md, Cursor. Staging starts
+empty.
 
 ## Notes
 
@@ -142,9 +173,10 @@ Cursors lost in the last second follow the rule in specification.md, Cursor.
 - The egress guard caps the bill. Vultr charges $0.01/GB for outbound traffic past the
   account's allowance and has no cap of its own, so a flood of requests could run one up.
   `/usr/local/sbin/postilla-egress-guard` runs from cron every minute. It reads this
-  month's outbound bytes from vnstat, and at `egress_limit_gb` (2,900 GB of 10^9 bytes, under the
-  allowance: 2 TB free per account plus the plan's 1 TB, accrued hourly) it stops Caddy: the API is down, SSH and Litestream keep working. At the next month (UTC,
-  like Vultr's billing) it starts Caddy again. vnstat counts all the interface sends, which
+  month's outbound bytes from vnstat, and at `egress_limit_gb` (2,900 GB of 10^9 bytes,
+  under the allowance: 2 TB free per account plus the plan's 1 TB, accrued hourly) it stops
+  Caddy: both APIs are down, SSH and Litestream keep working. At the next month (UTC, like
+  Vultr's billing) it starts Caddy again. vnstat counts all the interface sends, which
   is at least what Vultr bills. See it with `vnstat -m` and
   `journalctl -t postilla-egress-guard`. To serve again before the month ends, raise the
   `limit=` line in the script (`egress_limit_gb` in Terraform only reaches new servers).

@@ -1,5 +1,6 @@
 .env
 cli.env
+cli.staging.env
 .zig-cache/
 zig-out/
 coverage/

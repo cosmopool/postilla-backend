@@ -1,13 +1,15 @@
-# Everything docs/specification.md, Deployment, needs: the two R2 buckets, one token per
-# bucket, the VPS with its firewall, and the DNS record Caddy serves.
+# Everything docs/specification.md, Deployment, needs: the R2 buckets, one token per
+# bucket, the VPS with its firewall, and the DNS records Caddy serves. Staging runs on the
+# same VPS with its own story bucket, CLI token, author token and hostname.
 
 locals {
   # R2's S3 host, as Litestream takes it.
   r2_host = "${var.cloudflare_account_id}.r2.cloudflarestorage.com"
   # An R2 S3 key pair comes from an API token: the token's id is the access key id and the
   # sha256 of its value is the secret.
-  cli_secret        = sha256(cloudflare_account_token.cli.value)
-  litestream_secret = sha256(cloudflare_account_token.litestream.value)
+  cli_secret         = sha256(cloudflare_account_token.cli.value)
+  cli_staging_secret = sha256(cloudflare_account_token.cli_staging.value)
+  litestream_secret  = sha256(cloudflare_account_token.litestream.value)
 }
 
 # --- R2 ----------------------------------------------------------------------
@@ -21,6 +23,13 @@ resource "cloudflare_r2_bucket" "stories" {
 resource "cloudflare_r2_bucket" "backup" {
   account_id = var.cloudflare_account_id
   name       = var.backup_bucket
+  location   = var.r2_location
+}
+
+# Staging's story bucket: what `postilla publish` writes against the staging server.
+resource "cloudflare_r2_bucket" "staging_stories" {
+  account_id = var.cloudflare_account_id
+  name       = var.staging_story_bucket
   location   = var.r2_location
 }
 
@@ -59,6 +68,19 @@ resource "cloudflare_account_token" "cli" {
   }]
 }
 
+# The CLI's against staging: the staging story bucket only.
+resource "cloudflare_account_token" "cli_staging" {
+  account_id = var.cloudflare_account_id
+  name       = "postilla-cli (${var.staging_story_bucket})"
+  policies = [{
+    effect            = "allow"
+    permission_groups = [{ id = local.r2_write_group }]
+    resources = jsonencode({
+      "com.cloudflare.edge.r2.bucket.${var.cloudflare_account_id}_default_${cloudflare_r2_bucket.staging_stories.name}" = "*"
+    })
+  }]
+}
+
 # Litestream's: the backup bucket only. It sits on the VPS, which holds no other R2 key.
 resource "cloudflare_account_token" "litestream" {
   account_id = var.cloudflare_account_id
@@ -74,6 +96,12 @@ resource "cloudflare_account_token" "litestream" {
 
 # The bearer token for POST /stories and DELETE /stories/<id>: on the VPS and in cli.env.
 resource "random_password" "author_token" {
+  length  = 64
+  special = false
+}
+
+# Staging's own, so a staging token never writes to production.
+resource "random_password" "staging_author_token" {
   length  = 64
   special = false
 }
@@ -143,6 +171,8 @@ resource "vultr_instance" "api" {
     litestream_secret  = local.litestream_secret
     egress_limit_gb    = var.egress_limit_gb
     postilla_update    = file("${path.module}/postilla-update")
+    staging_hostname   = var.staging_api_hostname
+    staging_token      = random_password.staging_author_token.result
   })
 
   # postilla.db lives on this disk: never replace or wipe the server by accident. A changed
@@ -174,6 +204,24 @@ resource "cloudflare_dns_record" "api_a" {
 resource "cloudflare_dns_record" "api_aaaa" {
   zone_id = var.zone_id
   name    = var.api_hostname
+  type    = "AAAA"
+  content = local.server_ipv6
+  ttl     = 300
+  proxied = false
+}
+
+resource "cloudflare_dns_record" "staging_a" {
+  zone_id = var.zone_id
+  name    = var.staging_api_hostname
+  type    = "A"
+  content = vultr_instance.api.main_ip
+  ttl     = 300
+  proxied = false
+}
+
+resource "cloudflare_dns_record" "staging_aaaa" {
+  zone_id = var.zone_id
+  name    = var.staging_api_hostname
   type    = "AAAA"
   content = local.server_ipv6
   ttl     = 300

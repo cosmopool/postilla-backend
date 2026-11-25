@@ -14,6 +14,12 @@ variable "api_hostname" {
   default     = "api.postilla.kaiodelphino.com"
 }
 
+variable "staging_api_hostname" {
+  description = "Where the staging postilla-server answers, on the same VPS; Caddy gets its own certificate for it."
+  type        = string
+  default     = "staging-api.postilla.kaiodelphino.com"
+}
+
 variable "files_hostname" {
   description = "Optional custom domain for the public story bucket (e.g. files.postilla.kaiodelphino.com), the base URL the app downloads stories from. Empty: no custom domain."
   type        = string
@@ -24,6 +30,12 @@ variable "story_bucket" {
   description = "Public bucket: stories/ (written by `postilla publish`) and dict/ (written by the postilla-content build)."
   type        = string
   default     = "postilla-stories"
+}
+
+variable "staging_story_bucket" {
+  description = "Staging's story bucket: what `postilla publish` writes against the staging server."
+  type        = string
+  default     = "postilla-stories-staging"
 }
 
 variable "backup_bucket" {

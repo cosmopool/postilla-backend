@@ -2,6 +2,10 @@ output "api_url" {
   value = "https://${var.api_hostname}"
 }
 
+output "staging_url" {
+  value = "https://${var.staging_api_hostname}"
+}
+
 output "server_ipv4" {
   value = vultr_instance.api.main_ip
 }
@@ -15,7 +19,7 @@ output "files_url" {
   value       = var.files_hostname == "" ? null : "https://${var.files_hostname}"
 }
 
-# `terraform output -raw cli_env` prints the CLI's configuration for cli.env, apart from the
+# `tofu output -raw cli_env` prints the CLI's configuration for cli.env, apart from the
 # OpenCode and Speechify keys, which aren't Terraform's.
 output "cli_env" {
   sensitive = true
@@ -26,5 +30,18 @@ output "cli_env" {
     POSTILLA_R2_ACCESS_KEY_ID=${cloudflare_account_token.cli.id}
     POSTILLA_R2_SECRET_ACCESS_KEY=${local.cli_secret}
     POSTILLA_R2_BUCKET=${cloudflare_r2_bucket.stories.name}
+  EOT
+}
+
+# `tofu output -raw cli_env_staging` prints the same for staging, for cli.staging.env.
+output "cli_env_staging" {
+  sensitive = true
+  value     = <<-EOT
+    POSTILLA_SERVER_URL=https://${var.staging_api_hostname}
+    POSTILLA_AUTHOR_TOKEN=${random_password.staging_author_token.result}
+    POSTILLA_R2_ACCOUNT_ID=${var.cloudflare_account_id}
+    POSTILLA_R2_ACCESS_KEY_ID=${cloudflare_account_token.cli_staging.id}
+    POSTILLA_R2_SECRET_ACCESS_KEY=${local.cli_staging_secret}
+    POSTILLA_R2_BUCKET=${cloudflare_r2_bucket.staging_stories.name}
   EOT
 }

@@ -2,6 +2,8 @@
 # First boot of the postilla VPS (docs/specification.md, Deployment): postilla-server under
 # systemd with a root-only env file, Caddy in front for TLS, Litestream streaming the WAL to
 # the private backup bucket. A rebuilt server restores postilla.db from that bucket first.
+# Staging is a second postilla-server on the same box: its own user, port, database, token
+# and hostname, and no backup.
 package_update: true
 package_upgrade: true
 # Vultr's billing month is the calendar month in UTC; vnstat's months follow the local time.
@@ -58,6 +60,42 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
+  - path: /etc/postilla/staging.env
+    owner: root:root
+    permissions: "0600"
+    content: |
+      POSTILLA_PORT=8081
+      POSTILLA_BIND=127.0.0.1
+      POSTILLA_DB=/var/lib/postilla-staging/postilla.db
+      POSTILLA_AUTHOR_TOKEN=${staging_token}
+
+  # Production's unit with staging's user, env, binary and directory.
+  - path: /etc/systemd/system/postilla-server-staging.service
+    content: |
+      [Unit]
+      Description=postilla-server (staging)
+      Wants=network-online.target
+      After=network-online.target
+      ConditionPathExists=/usr/local/bin/postilla-server-staging
+
+      [Service]
+      User=postilla-staging
+      Group=postilla-staging
+      EnvironmentFile=/etc/postilla/staging.env
+      WorkingDirectory=/var/lib/postilla-staging
+      ExecStart=/usr/local/bin/postilla-server-staging
+      Restart=on-failure
+      RestartSec=2
+      LimitNOFILE=65536
+      NoNewPrivileges=true
+      ProtectSystem=strict
+      ProtectHome=true
+      PrivateTmp=true
+      ReadWritePaths=/var/lib/postilla-staging
+
+      [Install]
+      WantedBy=multi-user.target
+
   # Litestream runs as postilla too, so the WAL and its own files keep one owner.
   - path: /etc/systemd/system/litestream.service.d/user.conf
     content: |
@@ -86,6 +124,10 @@ write_files:
     content: |
       ${api_hostname} {
         reverse_proxy 127.0.0.1:8080
+      }
+
+      ${staging_hostname} {
+        reverse_proxy 127.0.0.1:8081
       }
 
   # Vultr bills outbound traffic past the allowance per GB, with no cap. Once this month's
@@ -128,6 +170,8 @@ runcmd:
   - systemctl try-reload-or-restart ssh
   - useradd --system --home-dir /var/lib/postilla --shell /usr/sbin/nologin postilla
   - install -d -o postilla -g postilla -m 0750 /var/lib/postilla
+  - useradd --system --home-dir /var/lib/postilla-staging --shell /usr/sbin/nologin postilla-staging
+  - install -d -o postilla-staging -g postilla-staging -m 0750 /var/lib/postilla-staging
   - chown postilla:postilla /etc/litestream.yml
   - install -d -m 0700 /var/lib/postilla-egress-guard
   # vnstat saves its counters every 5 minutes by default; every minute keeps the guard close.
@@ -145,6 +189,7 @@ runcmd:
   - systemctl daemon-reload
   - systemctl enable --now litestream
   - systemctl enable --now postilla-server
+  - systemctl enable --now postilla-server-staging
   # Vultr's Ubuntu image enables ufw with SSH only; the Vultr firewall group already filters.
   - ufw allow 80/tcp
   - ufw allow 443
