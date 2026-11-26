@@ -45,7 +45,16 @@ const schema =
     \\PRAGMA user_version = 1;
 ;
 
+/// The latest tag and the full commit hash the binary was built from (build.zig).
+pub const version = @import("version").version;
+
 pub fn main(init: std.process.Init) !void {
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
+    if (args.len == 2 and std.mem.eql(u8, args[1], "--version")) {
+        var stdout = std.Io.File.stdout().writerStreaming(init.io, &.{});
+        stdout.interface.writeAll("postilla-server " ++ version ++ "\n") catch {};
+        return;
+    }
     const config = readConfig(init.arena.allocator(), init.environ_map) catch std.process.exit(1);
     var listener = listen(init.io, &config) catch |err| {
         log.err("cannot listen on {s}:{d}: {t}", .{ config.bind, config.port, err });

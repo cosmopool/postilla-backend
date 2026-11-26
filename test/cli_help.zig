@@ -1,5 +1,6 @@
 //! `postilla --help` (docs/specification.md, The CLI): the full help on stdout with exit 0;
 //! a usage error keeps the short usage on stderr with exit 2 and points to `--help`.
+//! `postilla --version` (docs/specification.md, Process): the tag and commit on stdout.
 
 const std = @import("std");
 const cli = @import("cli");
@@ -53,4 +54,23 @@ test "a usage error prints the short usage to stderr, points to --help, and exit
         try std.testing.expect(std.mem.startsWith(u8, r.err, "usage: postilla"));
         try std.testing.expect(std.mem.find(u8, r.err, "postilla --help") != null);
     }
+}
+
+test "--version prints the latest tag and the full commit hash to stdout and exits 0" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const r = try run(arena.allocator(), &tmp, &.{ "postilla", "--version" });
+    try std.testing.expectEqual(0, r.code);
+    try std.testing.expectEqualStrings("", r.err);
+    // postilla <tag or untagged> <40 hex digits>[-dirty]
+    var parts = std.mem.splitScalar(u8, std.mem.trimEnd(u8, r.out, "\n"), ' ');
+    try std.testing.expectEqualStrings("postilla", parts.next().?);
+    try std.testing.expect(parts.next().?.len > 0);
+    const commit = parts.next().?;
+    try std.testing.expect(parts.next() == null);
+    const hash = if (std.mem.endsWith(u8, commit, "-dirty")) commit[0 .. commit.len - 6] else commit;
+    try std.testing.expectEqual(40, hash.len);
+    for (hash) |ch| try std.testing.expect(std.ascii.isHex(ch));
 }

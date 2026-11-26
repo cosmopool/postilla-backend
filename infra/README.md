@@ -122,7 +122,12 @@ server, which:
    `postilla-server-staging.prev`),
 2. swaps the new one in with one rename and restarts the unit,
 3. waits up to 10 s for `GET /languages` on its port (8080 or 8081), and when it doesn't
-   answer, puts `.prev` back, restarts, and exits 1.
+   answer, puts `.prev` back, restarts, and exits 1,
+4. when it answers, prints the new binary's `--version` (the latest git tag and the full
+   commit hash it was built from) and logs it to syslog.
+
+To see what a server runs: `ssh root@… /usr/local/bin/postilla-server --version` (or
+`postilla-server-staging`), or `journalctl -t postilla-update` for every install.
 
 ```bash
 POSTILLA_DEPLOY_KEY=~/.ssh/tumbler infra/deploy.sh staging      # root@api.postilla.kaiodelphino.com

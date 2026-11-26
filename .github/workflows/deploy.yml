@@ -47,7 +47,10 @@ jobs:
           echo "::error::production deploys a version tag; $REF is a branch"
           exit 1
 
+      # Full history and tags: the build embeds the latest tag and the commit (--version).
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       # The Zig version comes from minimum_zig_version in build.zig.zon.
       - uses: mlugg/setup-zig@v2
 

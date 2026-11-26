@@ -5,7 +5,8 @@ const std = @import("std");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Sha256 = std.crypto.hash.sha2.Sha256;
-const wire = @import("server").wire;
+const server = @import("server");
+const wire = server.wire;
 const tilla = @import("tilla");
 const r2 = @import("r2");
 const outbound = @import("outbound.zig");
@@ -28,6 +29,7 @@ const help =
     \\Usage:
     \\  postilla <command> <folder> [options]
     \\  postilla --help
+    \\  postilla --version   the latest git tag and full commit hash it was built from
     \\
     \\Every command works on one story folder. It reads <folder>/story.json, checks it
     \\(the story.json rules in the spec), and writes its results back there, so any
@@ -89,7 +91,7 @@ const help =
     \\timeout, a 429 or a 5xx.
     \\
     \\Exit codes:
-    \\  0  done (and for --help)
+    \\  0  done (and for --help and --version)
     \\  1  a step failed: one line on stderr names it; story.json is left as it
     \\     was before that step
     \\  2  usage error
@@ -111,6 +113,11 @@ pub fn run(io: Io, arena: Allocator, env: *std.process.Environ.Map, cwd: Io.Dir,
     if (args.len == 2 and (std.mem.eql(u8, args[1], "--help") or std.mem.eql(u8, args[1], "-h") or std.mem.eql(u8, args[1], "help"))) {
         var stdout = Io.File.stdout().writerStreaming(io, &.{});
         stdout.interface.writeAll(help) catch {};
+        return 0;
+    }
+    if (args.len == 2 and std.mem.eql(u8, args[1], "--version")) {
+        var stdout = Io.File.stdout().writerStreaming(io, &.{});
+        stdout.interface.writeAll("postilla " ++ server.version ++ "\n") catch {};
         return 0;
     }
     var ok = (args.len == 3 and (std.mem.eql(u8, args[1], "publish") or std.mem.eql(u8, args[1], "narrate"))) or (args.len >= 3 and std.mem.eql(u8, args[1], "translate"));

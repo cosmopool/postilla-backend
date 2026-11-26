@@ -2,8 +2,9 @@
 # postilla-update <production|staging>: installs the postilla-server binary read from stdin
 # for that server, the server side of infra/deploy.sh. The running binary stays as .prev;
 # when the new one doesn't answer GET /languages within 10 s of the restart, the previous
-# one goes back and this exits 1. Runs as root (directly or through sudo); cloud-init
-# installs it as /usr/local/sbin/postilla-update.
+# one goes back and this exits 1. When the new one comes up, its --version is printed and
+# logged. Runs as root (directly or through sudo); cloud-init installs it as
+# /usr/local/sbin/postilla-update.
 set -eu
 case ${1:-} in
   production) unit=postilla-server port=8080 ;;
@@ -37,8 +38,10 @@ up() {
 }
 
 if up; then
-  echo "postilla-update: $unit is up"
-  logger -t postilla-update "installed a new $unit"
+  # A binary built before --version existed reads it as a start and fails on the missing env.
+  version=$("$bin" --version 2>/dev/null) || version="$unit (no --version)"
+  echo "postilla-update: $unit is up: $version"
+  logger -t postilla-update "installed $unit: $version"
   exit 0
 fi
 echo "postilla-update: the new $unit did not answer GET /languages" >&2

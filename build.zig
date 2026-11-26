@@ -37,6 +37,19 @@ pub fn build(b: *std.Build) void {
     const c_mod = c.createModule();
 
     const server_mod = module(b, "src/server.zig", target, optimize, c_mod, sqlite_dir);
+    // `server.version` for --version: the latest tag reachable from HEAD ("untagged" when
+    // none), the full HEAD hash ("unknown" outside git), "-dirty" for uncommitted changes.
+    // A run step with side effects, since the configure phase is cached: it reruns on
+    // every build, and the module recompiles only when the string changes.
+    const git = b.addSystemCommand(&.{
+        "sh", "-c",
+        \\tag=$(git describe --tags --abbrev=0 2>/dev/null || echo untagged)
+        \\hash=$(git describe --always --dirty --abbrev=40 --exclude='*' 2>/dev/null || echo unknown)
+        \\printf 'pub const version = "%s %s";\n' "$tag" "$hash"
+    });
+    git.setCwd(b.path("."));
+    git.has_side_effects = true;
+    server_mod.addAnonymousImport("version", .{ .root_source_file = git.captureStdOut(.{ .basename = "version.zig" }) });
     // `tilla` reaches SQLite and the wire types through `server.db` and `server.wire`.
     const tilla = b.createModule(.{ .root_source_file = b.path("src/tilla.zig"), .imports = &.{
         .{ .name = "c", .module = c_mod },
