@@ -1,10 +1,10 @@
 // Runs the Dart normalization `zig build dart` generates (zig-out/dart/words_norm.dart) on
 // the AC-6, AC-7 and AC-8 inputs. Exits 1 when a result differs from tilla.md (Words), and
 // prints one line per input — the input, its normalization and its lookup keys,
-// tab-separated — so test/words.zig can check each line against the Zig functions.
+// tab-separated — so test/dart/words.zig can check each line against the Zig functions.
 import 'dart:io';
 
-import '../zig-out/dart/words_norm.dart';
+import '../../zig-out/dart/words_norm.dart';
 
 const normalized = {
   'È GIÀ così': 'e gia cosi',

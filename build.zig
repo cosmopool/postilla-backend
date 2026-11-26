@@ -146,6 +146,14 @@ pub fn build(b: *std.Build) void {
         }
     }
 
+    // The Dart check needs the Dart SDK, so it has its own step (and CI job).
+    b.step("test-dart", "Check the generated Dart normalization against the Zig one (needs dart on PATH)").dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("test/dart/words.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "words", .module = words }},
+    }) })).step);
+
     // The Italian moderation test set calls the real Jev, so it runs only on demand.
     const live = b.addRunArtifact(b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("test/live/moderation.zig"),

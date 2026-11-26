@@ -23,7 +23,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The generated Dart normalization against the Zig one; only this job needs the Dart SDK.
+  dart:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: mlugg/setup-zig@v2
+      - uses: dart-lang/setup-dart@v1
+      - run: zig build test-dart
+
   deploy:
+    needs: dart
     runs-on: ubuntu-24.04
     environment: ${{ inputs.server || 'staging' }}
     env:

@@ -151,7 +151,8 @@ ssh root@… journalctl -u postilla-server -u litestream -u caddy -n 50
 
 ## GitHub Actions
 
-`.github/workflows/deploy.yml` runs `zig build test` and then `deploy.sh`:
+`.github/workflows/deploy.yml` runs `zig build test-dart` in a `dart` job (the only one with the
+Dart SDK), then, once it passes, `zig build test` and `deploy.sh` in the `deploy` job:
 
 - Pushing a version tag (`git tag v1.2.0 && git push origin v1.2.0`) deploys it to staging.
 - Production is manual: Actions → deploy → Run workflow, pick the tag under "Use workflow

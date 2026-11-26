@@ -65,7 +65,8 @@ fn send(client: *std.http.Client, method: std.http.Method, uri: std.Uri, headers
     defer req.deinit();
     errdefer req.connection.?.closing = true;
     events[1].set(client.io);
-    try req.sendBodyComplete(body);
+    // GET, HEAD and DELETE carry no body; the client asserts on one.
+    if (method.requestHasBody()) try req.sendBodyComplete(body) else try req.sendBodiless();
     var response = try req.receiveHead(&.{});
     var it = response.head.iterateHeaders();
     while (it.next()) |h| {

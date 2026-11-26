@@ -369,5 +369,11 @@ fn encodeAndFree(a: Allocator, samples: []const i16) !void {
 test "AC-F3: every allocation failure during an encode returns error.OutOfMemory with no leak" {
     const samples = try sine(4800, 48000, 440);
     defer gpa.free(samples);
-    try std.testing.checkAllAllocationFailures(gpa, encodeAndFree, .{samples});
+    // On gpa, the .opus list's growth sometimes stays in place and sometimes moves, so the
+    // allocation count changes between runs. A fixed buffer grows the same way every time;
+    // the failing allocator still counts a leak as allocated bytes never freed.
+    const buf = try gpa.alloc(u8, 1 << 20);
+    defer gpa.free(buf);
+    var fixed: std.heap.FixedBufferAllocator = .init(buf);
+    try std.testing.checkAllAllocationFailures(fixed.allocator(), encodeAndFree, .{samples});
 }
