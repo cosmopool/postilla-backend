@@ -158,15 +158,20 @@ ssh root@… journalctl -u postilla-server -u litestream -u caddy -n 50
 
 ## GitHub Actions
 
-`.github/workflows/deploy.yml` runs `zig build test` and `zig build test-dart` in a `tests` job
-(the only one with the Dart SDK), then, once it passes, `deploy.sh` in the `deploy` job. Both
-jobs run `zig build --fetch=all` first: on a cold cache the build fetches the lazy C
+`.github/workflows/deploy.yml` runs three jobs, each once the one before passes: `tests` runs
+`zig build test` and `zig build test-dart` (the only job with the Dart SDK); `build` builds the
+release binary and uploads it as the `postilla-server` artifact; `deploy` downloads it and runs
+`deploy.sh` with `POSTILLA_SERVER_BIN`, so it ships the exact file `build` made and has no Zig.
+`tests` and `build` run `zig build --fetch=all` first: on a cold cache the build fetches the lazy C
 dependencies concurrently, and Zig 0.17's HTTP client fails the second download from
 xiph.org with `HttpConnectionClosing`.
 
 - Pushing a version tag (`git tag v1.2.0 && git push origin v1.2.0`) deploys it to staging.
 - Production is manual: Actions → deploy → Run workflow, pick the tag under "Use workflow
-  from" and `production`. A run on a branch fails before it deploys.
+  from" and `production`. A run on a branch fails before it deploys. It skips `tests` and
+  `build` and ships the artifact of the tag's successful push run, the binary staging runs.
+  Artifacts are kept 90 days; a tag with none (expired, or tagged before the `build` job,
+  v0.2.3 and older) fails, and the fix is a new tag.
 
 The job logs in as `deploy@api.postilla.kaiodelphino.com` with the repository secret
 `DEPLOY_SSH_KEY`, the private half of `deploy_ssh_public_key` (`~/.ssh/postilla-deploy`).
@@ -176,6 +181,10 @@ with the last word of the requested command, and `/etc/sudoers.d/postilla-deploy
 only `postilla-update production` and `postilla-update staging`. Root owns both files, so
 the deploy user can't lift the limit; any other command fails at sudo. A leaked key can
 install a binary, which still has to answer `GET /languages`, and nothing else.
+
+Terraform ignores `user_data` on a running server, so a new `deploy_ssh_public_key` doesn't
+reach it: `infra/install-deploy-key.sh [root@host] [public key]` writes the same line over root
+SSH and prints the key fingerprint before and after.
 
 The server's host key is pinned in `infra/known_hosts`, so the job refuses any other
 server. It runs in the GitHub environment named after the server (`staging`,

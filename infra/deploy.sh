@@ -7,6 +7,8 @@
 #
 # Both servers run on one VPS; user@host defaults to root@api.postilla.kaiodelphino.com.
 # POSTILLA_DEPLOY_KEY, when set, is the SSH private key to log in with.
+# POSTILLA_SERVER_BIN, when set, is the path to a binary already built (CI's build job, which
+# passes it absolute; a relative one is from the repo root), so nothing is built here.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
@@ -20,5 +22,9 @@ if [ -n "${POSTILLA_DEPLOY_KEY:-}" ]; then
   ssh_opts+=(-i "$POSTILLA_DEPLOY_KEY" -o IdentitiesOnly=yes)
 fi
 
-zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl
-ssh "${ssh_opts[@]}" "$target" sudo /usr/local/sbin/postilla-update "$server" < zig-out/bin/postilla-server
+bin=${POSTILLA_SERVER_BIN:-}
+if [ -z "$bin" ]; then
+  zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl
+  bin=zig-out/bin/postilla-server
+fi
+ssh "${ssh_opts[@]}" "$target" sudo /usr/local/sbin/postilla-update "$server" < "$bin"

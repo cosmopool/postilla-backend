@@ -1,6 +1,7 @@
-# Tests and deploys postilla-server with infra/deploy.sh (infra/README.md, GitHub Actions).
+# Tests, builds and deploys postilla-server with infra/deploy.sh (infra/README.md, GitHub Actions).
 # A pushed version tag deploys to staging. Production is a manual run on a tag:
-# Actions → deploy → Run workflow, pick the tag and "production".
+# Actions → deploy → Run workflow, pick the tag and "production". It builds nothing: it ships the
+# binary that tag's staging run built and deployed.
 name: deploy
 
 on:
@@ -16,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  actions: read # production reads the staging run's artifact
 
 # One deploy at a time; a queued one waits instead of cancelling the running one.
 concurrency:
@@ -24,8 +26,9 @@ concurrency:
 
 jobs:
   # Every test, once: the Zig suite and the generated Dart normalization against the Zig one
-  # (test-dart, the only one that needs the Dart SDK).
+  # (test-dart, the only one that needs the Dart SDK). Production skips it, as it skips build.
   tests:
+    if: inputs.server != 'production'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -38,8 +41,35 @@ jobs:
       - run: zig build test
       - run: zig build test-dart
 
-  deploy:
+  # The release binary, once the tests pass; deploy ships this exact file, and production
+  # ships it again later, so it is kept for 90 days.
+  build:
     needs: tests
+    runs-on: ubuntu-24.04
+    steps:
+      # Full history and tags: the build embeds the latest tag and the commit (--version).
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # The Zig version comes from minimum_zig_version in build.zig.zon.
+      - uses: mlugg/setup-zig@v2
+      # As in the tests job: fetch the lazy dependencies before the build does.
+      - run: zig build --fetch=all
+      - run: zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl
+      - uses: actions/upload-artifact@v7
+        with:
+          name: postilla-server
+          path: zig-out/bin/postilla-server
+          if-no-files-found: error
+          retention-days: 90
+
+  deploy:
+    needs: build
+    # Staging: once build passes. Production: build is skipped, and the binary comes from the
+    # tag's staging run.
+    if: >-
+      !cancelled() && (needs.build.result == 'success' ||
+      (inputs.server == 'production' && needs.build.result == 'skipped'))
     runs-on: ubuntu-24.04
     environment: ${{ inputs.server || 'staging' }}
     env:
@@ -53,15 +83,36 @@ jobs:
           echo "::error::production deploys a version tag; $REF is a branch"
           exit 1
 
-      # Full history and tags: the build embeds the latest tag and the commit (--version).
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      # The Zig version comes from minimum_zig_version in build.zig.zon.
-      - uses: mlugg/setup-zig@v2
+      # The tag's push run, which deployed it to staging, and its artifact, unexpired.
+      - name: Find the staging build
+        id: source
+        if: env.SERVER == 'production'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy.yml/runs?event=push&branch=$TAG&status=success" \
+            --jq '.workflow_runs[0].id // empty')
+          if [ -z "$run" ]; then
+            echo "::error::no successful staging run for $TAG; push the tag (or a new one) to deploy it to staging first"
+            exit 1
+          fi
+          live=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
+            --jq '[.artifacts[] | select(.name == "postilla-server" and .expired == false)] | length')
+          if [ "$live" != 1 ]; then
+            echo "::error::staging run $run of $TAG has no postilla-server artifact (expired after 90 days, or older than the build job); push a new tag to build and stage it again"
+            exit 1
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
 
-      # As in the tests job: fetch the lazy dependencies before the build does.
-      - run: zig build --fetch=all
+      # Only for infra/deploy.sh and infra/known_hosts; nothing is built here.
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: postilla-server
+          path: bin
+          run-id: ${{ steps.source.outputs.run || github.run_id }}
+          github-token: ${{ github.token }}
 
       # As deploy, whose key runs only postilla-update (infra/README.md, GitHub Actions).
       - name: Deploy
@@ -72,4 +123,4 @@ jobs:
           grep -v '^#' infra/known_hosts > ~/.ssh/known_hosts
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 0600 ~/.ssh/deploy_key
-          POSTILLA_DEPLOY_KEY=~/.ssh/deploy_key infra/deploy.sh "$SERVER" deploy@api.postilla.kaiodelphino.com
+          POSTILLA_DEPLOY_KEY=~/.ssh/deploy_key POSTILLA_SERVER_BIN="$PWD/bin/postilla-server" infra/deploy.sh "$SERVER" deploy@api.postilla.kaiodelphino.com
