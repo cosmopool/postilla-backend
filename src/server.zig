@@ -42,6 +42,13 @@ const schema =
     \\  ('viaggio', 'Viaggio', 'Viagem', 'Travel'), ('mistero', 'Mistero', 'Mistério', 'Mystery'), ('lettere', 'Lettere', 'Cartas', 'Letters'),
     \\  ('racconto', 'Racconto', 'Conto', 'Short story'), ('classici', 'Classici', 'Clássicos', 'Classics');
     \\INSERT OR IGNORE INTO author VALUES ('collodi', 'Carlo Collodi');
+    \\INSERT OR IGNORE INTO tag VALUES ('caffe', 'Caffè', 'Café', 'Coffee'), ('casa', 'Casa', 'Casa', 'Home'),
+    \\  ('cibo', 'Cibo', 'Comida', 'Food'), ('citta', 'Città', 'Cidade', 'City'), ('cucina', 'Cucina', 'Cozinha', 'Cooking'),
+    \\  ('emilia-romagna', 'Emilia-Romagna', 'Emília-Romanha', 'Emilia-Romagna'), ('famiglia', 'Famiglia', 'Família', 'Family'),
+    \\  ('mercato', 'Mercato', 'Mercado', 'Market'), ('nonna', 'Nonna', 'Nonna', 'Grandma'),
+    \\  ('notte', 'Notte', 'Noite', 'Night'), ('segreto', 'Segreto', 'Segredo', 'Secret'),
+    \\  ('sicilia', 'Sicilia', 'Sicília', 'Sicily'), ('treno', 'Treno', 'Trem', 'Train'),
+    \\  ('trieste', 'Trieste', 'Trieste', 'Trieste'), ('vicini', 'Vicini', 'Vizinhos', 'Neighbours');
     \\PRAGMA user_version = 1;
 ;
 

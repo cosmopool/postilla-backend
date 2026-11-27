@@ -9,8 +9,8 @@ What v1.0 has today, by spec section. Status: `done` · `partial` (what's missin
 | Spec section | Status | Notes |
 |---|---|---|
 | Encoding, Stories and translations, Cursor | done | |
-| Languages, genres, tags and authors | partial | Production has 0 tags; the learner app's catalogue needs 15. |
-| Files in R2 | partial | The public bucket has no public domain: `content.postilla.kaiodelphino.com` doesn't resolve (`files_hostname` unset), and staging's bucket has none either. `dict/latest` not confirmed in either bucket. |
+| Languages, genres, tags and authors | in progress (first stories) | Production has 0 tags; the learner app's catalogue needs 15. |
+| Files in R2 | in progress (first stories) | The public bucket has no public domain: `content.postilla.kaiodelphino.com` doesn't resolve (`files_hostname` unset), and staging's bucket has none either. `dict/latest` not confirmed in either bucket. |
 | Endpoints (`GET /stories`, lists, `POST /stories`, `DELETE /stories/<id>`) | done | Production's feed is empty: no story is published yet. |
 | The CLI (`translate`, `narrate`, `publish`) | done | Never run against production. |
 | Database, Configuration, Process, Deployment, Tests | done | |

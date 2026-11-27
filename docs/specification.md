@@ -508,7 +508,7 @@ Startup creates the schema and inserts the initial rows with `INSERT OR IGNORE`,
 | `language` | `it` Italiano (target 1, translate 0) · `pt-BR` Português brasileiro (0, 1) · `en` English (0, 0) |
 | `genre` (`id`: `it` / `pt_br` / `en`) | `quotidiano`: Quotidiano / Cotidiano / Everyday · `famiglia`: Famiglia / Família / Family · `viaggio`: Viaggio / Viagem / Travel · `mistero`: Mistero / Mistério / Mystery · `lettere`: Lettere / Cartas / Letters · `racconto`: Racconto / Conto / Short story · `classici`: Classici / Clássicos / Classics |
 | `author` | `collodi` Carlo Collodi |
-| `tag` | none yet |
+| `tag` (`id`: `it` / `pt_br` / `en`) | `caffe`: Caffè / Café / Coffee · `casa`: Casa / Casa / Home · `cibo`: Cibo / Comida / Food · `citta`: Città / Cidade / City · `cucina`: Cucina / Cozinha / Cooking · `emilia-romagna`: Emilia-Romagna / Emília-Romanha / Emilia-Romagna · `famiglia`: Famiglia / Família / Family · `mercato`: Mercato / Mercado / Market · `nonna`: Nonna / Nonna / Grandma · `notte`: Notte / Noite / Night · `segreto`: Segreto / Segredo / Secret · `sicilia`: Sicilia / Sicília / Sicily · `treno`: Treno / Trem / Train · `trieste`: Trieste / Trieste / Trieste · `vicini`: Vicini / Vizinhos / Neighbours |
 
 ## Configuration
 

@@ -34,6 +34,23 @@ const genres = "GNRS\x01\x00\x07" ++
     named("racconto", "Racconto", "Conto", "Short story") ++
     named("viaggio", "Viaggio", "Viagem", "Travel");
 
+const tags = "TAGS\x01\x00\x0f" ++
+    named("caffe", "Caffè", "Café", "Coffee") ++
+    named("casa", "Casa", "Casa", "Home") ++
+    named("cibo", "Cibo", "Comida", "Food") ++
+    named("citta", "Città", "Cidade", "City") ++
+    named("cucina", "Cucina", "Cozinha", "Cooking") ++
+    named("emilia-romagna", "Emilia-Romagna", "Emília-Romanha", "Emilia-Romagna") ++
+    named("famiglia", "Famiglia", "Família", "Family") ++
+    named("mercato", "Mercato", "Mercado", "Market") ++
+    named("nonna", "Nonna", "Nonna", "Grandma") ++
+    named("notte", "Notte", "Noite", "Night") ++
+    named("segreto", "Segreto", "Segredo", "Secret") ++
+    named("sicilia", "Sicilia", "Sicília", "Sicily") ++
+    named("treno", "Treno", "Trem", "Train") ++
+    named("trieste", "Trieste", "Trieste", "Trieste") ++
+    named("vicini", "Vicini", "Vizinhos", "Neighbours");
+
 const authors = "AUTH\x01\x00\x01" ++ str("collodi") ++ str("Carlo Collodi");
 
 /// One 61-byte FEED record: the story id and the sha256 are a byte repeated.
@@ -144,7 +161,7 @@ test "AC-1, AC-2, AC-3, AC-4, AC-11: a fresh database serves the seed rows of th
 
     try expectBody(&h, "GET /languages HTTP/1.1", languages);
     try expectBody(&h, "GET /genres HTTP/1.1", genres);
-    try expectBody(&h, "GET /tags HTTP/1.1", "TAGS\x01\x00\x00");
+    try expectBody(&h, "GET /tags HTTP/1.1", tags);
     try expectBody(&h, "GET /authors HTTP/1.1", authors);
 }
 
@@ -164,7 +181,7 @@ test "AC-11: startup creates the schema and triggers and stamps user_version 1" 
         \\INSERT INTO ok SELECT count(*) = 3 FROM language;
         \\INSERT INTO ok SELECT count(*) = 7 FROM genre;
         \\INSERT INTO ok SELECT count(*) = 1 FROM author;
-        \\INSERT INTO ok SELECT count(*) = 0 FROM tag;
+        \\INSERT INTO ok SELECT count(*) = 15 FROM tag;
         \\INSERT INTO ok SELECT count(*) = 0 FROM story;
     );
 }
@@ -175,17 +192,34 @@ test "AC-3, AC-11: rows added or renamed by hand show up in the lists and surviv
     defer h.stop();
 
     try h.sql(
-        \\INSERT INTO tag VALUES ('cibo', 'Cibo', 'Comida', 'Food');
+        \\INSERT INTO tag VALUES ('legno', 'Legno', 'Madeira', 'Wood');
         \\UPDATE genre SET it = 'Classici rinominati' WHERE id = 'classici';
     );
-    const tags = "TAGS\x01\x00\x01" ++ named("cibo", "Cibo", "Comida", "Food");
-    try expectBody(&h, "GET /tags HTTP/1.1", tags);
+    // The hand-added tag sorts among the seed rows (ascending by id).
+    const with_legno = "TAGS\x01\x00\x10" ++
+        named("caffe", "Caffè", "Café", "Coffee") ++
+        named("casa", "Casa", "Casa", "Home") ++
+        named("cibo", "Cibo", "Comida", "Food") ++
+        named("citta", "Città", "Cidade", "City") ++
+        named("cucina", "Cucina", "Cozinha", "Cooking") ++
+        named("emilia-romagna", "Emilia-Romagna", "Emília-Romanha", "Emilia-Romagna") ++
+        named("famiglia", "Famiglia", "Família", "Family") ++
+        named("legno", "Legno", "Madeira", "Wood") ++
+        named("mercato", "Mercato", "Mercado", "Market") ++
+        named("nonna", "Nonna", "Nonna", "Grandma") ++
+        named("notte", "Notte", "Noite", "Night") ++
+        named("segreto", "Segreto", "Segredo", "Secret") ++
+        named("sicilia", "Sicilia", "Sicília", "Sicily") ++
+        named("treno", "Treno", "Trem", "Train") ++
+        named("trieste", "Trieste", "Trieste", "Trieste") ++
+        named("vicini", "Vicini", "Vizinhos", "Neighbours");
+    try expectBody(&h, "GET /tags HTTP/1.1", with_legno);
 
     // A second startup on the same file runs the schema and seed again.
     var again = try server.listen(io, &h.config);
     again.deinit(io);
 
-    try expectBody(&h, "GET /tags HTTP/1.1", tags);
+    try expectBody(&h, "GET /tags HTTP/1.1", with_legno);
     var buf: [4096]u8 = undefined;
     const r = try h.send("GET /genres HTTP/1.1", "", &buf);
     try expectEqual(200, r.status);
