@@ -158,8 +158,10 @@ ssh root@… journalctl -u postilla-server -u litestream -u caddy -n 50
 
 ## GitHub Actions
 
-`.github/workflows/deploy.yml` runs three jobs, each once the one before passes: `tests` runs
-`zig build test` and `zig build test-dart` (the only job with the Dart SDK); `build` builds the
+`.github/workflows/test.yml` runs on every branch push and pull request: `zig build test`,
+`zig build test-dart` (the only job with the Dart SDK) and `zig fmt --check`; a newer push to the
+same branch cancels the run it replaces. `.github/workflows/deploy.yml` runs three jobs, each once
+the one before passes: `tests` calls `test.yml`; `build` builds the
 release binary and uploads it as the `postilla-server` artifact; `deploy` downloads it and runs
 `deploy.sh` with `POSTILLA_SERVER_BIN`, so it ships the exact file `build` made and has no Zig.
 `tests` and `build` run `zig build --fetch=all` first: on a cold cache the build fetches the lazy C

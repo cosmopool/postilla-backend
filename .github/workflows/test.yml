@@ -1,0 +1,33 @@
+# Every test, once: the Zig suite and the generated Dart normalization against the Zig one
+# (test-dart, the only one that needs the Dart SDK). Runs on every branch push and pull
+# request, and deploy.yml calls it before it builds (infra/README.md, GitHub Actions).
+name: test
+
+on:
+  push:
+    branches: ["**"] # tags run deploy.yml, which calls this
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or PR cancels the run it replaces.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: mlugg/setup-zig@v2
+      - uses: dart-lang/setup-dart@v1
+      # On a cold cache the build fetches the lazy dependencies concurrently, and Zig 0.17's
+      # HTTP client fails the second xiph.org download (HttpConnectionClosing); --fetch=all
+      # fetches them up front and works.
+      - run: zig build --fetch=all
+      - run: zig build test
+      - run: zig build test-dart
+      - run: zig fmt --check build.zig src test

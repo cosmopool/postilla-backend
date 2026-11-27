@@ -25,21 +25,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Every test, once: the Zig suite and the generated Dart normalization against the Zig one
-  # (test-dart, the only one that needs the Dart SDK). Production skips it, as it skips build.
+  # Every test, as on every push and pull request (test.yml). Production skips it, as it
+  # skips build.
   tests:
     if: inputs.server != 'production'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: mlugg/setup-zig@v2
-      - uses: dart-lang/setup-dart@v1
-      # On a cold cache the build fetches the lazy dependencies concurrently, and Zig 0.17's
-      # HTTP client fails the second xiph.org download (HttpConnectionClosing); --fetch=all
-      # fetches them up front and works.
-      - run: zig build --fetch=all
-      - run: zig build test
-      - run: zig build test-dart
+    uses: ./.github/workflows/test.yml
 
   # The release binary, once the tests pass; deploy ships this exact file, and production
   # ships it again later, so it is kept for 90 days.
