@@ -300,8 +300,14 @@ const FakeOpenCode = struct {
     options: Options,
     bad_sent: usize = 0,
     seen: std.ArrayList(Seen) = .empty,
+    /// Requests seen so far, numbering each for its chaos fault, and the faults injected.
+    count: u64 = 0,
+    faults: usize = 0,
 
     const Options = struct {
+        /// When set, every request draws a fault (harness.Chaos) from this seed and the
+        /// request's number; the CLI sends its OpenCode requests one at a time.
+        chaos: ?u64 = null,
         /// Jev's probabilities, for the options of `criteria` in order.
         scores: [6]f64 = clean,
         /// Not ok: Jev answers this on every request (a 503 with `Retry-After: 0`).
@@ -382,7 +388,26 @@ const FakeOpenCode = struct {
         while (true) {
             var request = http.receiveHead() catch return;
             const keep_alive = request.head.keep_alive;
-            const answer = f.receive(&request) catch return;
+            const fault = f.chaosFault();
+            switch (fault) {
+                .drop => return,
+                .cut => {
+                    const body = request.readerExpectContinue(&.{}) catch return;
+                    body.discardAll((request.head.content_length orelse 0) / 2) catch {};
+                    return;
+                },
+                .slow => io.sleep(.fromMilliseconds(20), .awake) catch return,
+                else => {},
+            }
+            var answer = f.receive(&request) catch return;
+            // Answered as failed after the fake acted on it, like a reply lost on the way.
+            if (fault == .unavailable or fault == .stored_unavailable) answer = .{ .status = .service_unavailable };
+            if (fault == .short_body and answer.status == .ok and answer.body.len > 1) {
+                out.interface.print("HTTP/1.1 200 OK\r\ncontent-length: {d}\r\n{s}\r\n", .{ answer.body.len, if (answer.gzip) "content-encoding: gzip\r\n" else "" }) catch return;
+                out.interface.writeAll(answer.body[0 .. answer.body.len / 2]) catch return;
+                out.interface.flush() catch {};
+                return;
+            }
             var extra: [2]std.http.Header = undefined;
             var n: usize = 0;
             if (answer.status == .service_unavailable) extra[n] = .{ .name = "retry-after", .value = "0" };
@@ -396,6 +421,16 @@ const FakeOpenCode = struct {
             }) catch return;
             if (!keep_alive) return;
         }
+    }
+
+    /// The next request's fault (harness.Chaos): `none` unless chaos is on.
+    fn chaosFault(f: *FakeOpenCode) harness.Chaos {
+        f.mutex.lockUncancelable(io);
+        defer f.mutex.unlock(io);
+        f.count += 1;
+        const fault: harness.Chaos = .pick(f.options.chaos, f.count);
+        f.faults += @intFromBool(fault != .none);
+        return fault;
     }
 
     const Answer = struct { status: std.http.Status = .ok, body: []const u8 = "", gzip: bool = false };
@@ -873,4 +908,32 @@ test "AC-F5: a story folder where story.json can't be replaced exits 1 naming st
     try expectEqual(1, run.code);
     try expectSays(run.out, "story.json");
     try expectEqualStrings(json, try w.bytes());
+}
+
+test "chaos: under seeded OpenCode faults a translate succeeds or exits 1, story.json never half-written, and a clean rerun converges" {
+    // Seeds from the runner's --seed, as in cli_publish.zig's chaos test.
+    for (0..3) |i| {
+        const seed: u64 = (@as(u64, std.testing.random_seed) << 8) | i;
+        errdefer std.debug.print("chaos: failed with seed {d} (runner --seed=0x{x})\n", .{ seed, std.testing.random_seed });
+        var w: World = undefined;
+        try w.start(.{ .chaos = seed });
+        defer w.stop();
+        const a = w.arena.allocator();
+        const path = try w.folder(try story(a, &.{}));
+
+        const run = try w.translate(&.{path});
+        w.f.mutex.lockUncancelable(io);
+        const faults = w.f.faults;
+        w.f.options.chaos = null;
+        w.f.mutex.unlock(io);
+        std.debug.print("chaos: seed {d}: {d} faults, exit {d}\n", .{ seed, faults, run.code });
+        try expect(run.code == 0 or run.code == 1);
+        // story.json is always whole: the translation is there completely, or not at all.
+        const s = try w.read();
+        if (s.translations.map.get("pt-BR")) |t| try expectTranslated(t) else try expect(run.code == 1);
+
+        const again = try w.translate(&.{path});
+        try expectEqual(0, again.code);
+        try expectTranslated((try w.read()).translations.map.get("pt-BR"));
+    }
 }

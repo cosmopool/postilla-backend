@@ -56,6 +56,7 @@ Follow the Zig style guide, as the pipeline in `../src` does:
 ## Testing
 - Suites must be isolated: free port + temp SQLite file per run, no shared state.
 - OpenCode, Speechify and R2 are faked with local servers that return recorded responses; tests never call them.
+- The fakes also misbehave on purpose: with a `chaos` seed, each request draws a fault (`harness.Chaos`: 503s, answers lost after the work was done, slow answers, dropped connections, cut uploads, short bodies). A `chaos:` test per CLI command runs it under seeds from the runner's `--seed` and asserts only what a user sees: exit 0 or 1, nothing half-written or half-published, a clean rerun converges. A failure prints the seed; it replays with `-- --seed=<n>`.
 - Fuzz tests (`test/fuzz.zig`, `std.testing.fuzz`) only for hostile input: the boundary parsers and the HTTP layer. Each has a corpus of real and broken inputs, which `zig build test` replays, and checks properties (no panic, only declared errors, a round trip through the writer). A parser function is the public API for bytes, the stated exception to testing rule 1. A failure the fuzzer finds goes into the corpus with its fix.
 
 ## Decisions are mine — interview, don't assume

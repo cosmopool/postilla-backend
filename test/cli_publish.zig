@@ -8,7 +8,10 @@
 //! objects it is given, and serves `dict/latest` and the fixture `dict.db` build. It can fail
 //! the requests for one key (the first gets no answer at all, the later ones a 503 with
 //! `Retry-After: 0`, so the retries take seconds, not minutes), or cut the first upload of
-//! a key mid-body.
+//! a key mid-body. With a `chaos` seed it misbehaves at random instead, the same way for the
+//! same seed: 503s, uploads stored but answered as failed, slow answers, dropped
+//! connections, cut uploads and short downloads (TigerBeetle's fault injection, at the
+//! system boundary only).
 
 const std = @import("std");
 const Io = std.Io;
@@ -340,6 +343,9 @@ const FakeR2 = struct {
     options: Options,
     failed: usize = 0,
     cuts: usize = 0,
+    /// Requests seen so far, numbering each for its chaos fault, and the faults injected.
+    count: u64 = 0,
+    faults: usize = 0,
     objects: std.StringArrayHashMapUnmanaged([]const u8) = .empty,
     seen: std.ArrayList(Seen) = .empty,
 
@@ -350,7 +356,21 @@ const FakeR2 = struct {
         /// The first PUT whose target contains this is cut: 1 MiB of its body is read, then
         /// the connection is dropped with the rest unread. Empty cuts nothing.
         cut: []const u8 = "",
+        /// When set, every request draws a fault (harness.Chaos) from this seed and the
+        /// request's number, so a seed replays the same faults (the CLI sends its R2 requests
+        /// one at a time).
+        chaos: ?u64 = null,
     };
+
+    /// The next request's fault (harness.Chaos): `none` unless chaos is on.
+    fn chaosFault(f: *FakeR2) harness.Chaos {
+        f.mutex.lockUncancelable(io);
+        defer f.mutex.unlock(io);
+        f.count += 1;
+        const fault: harness.Chaos = .pick(f.options.chaos, f.count);
+        f.faults += @intFromBool(fault != .none);
+        return fault;
+    }
 
     /// In place, since the running fake keeps a pointer to `f`.
     fn start(f: *FakeR2, options: Options) !void {
@@ -429,8 +449,30 @@ const FakeR2 = struct {
                 body.discardAll(1 << 20) catch {};
                 return;
             }
-            const answer = f.receive(&request) catch return;
+            const fault = f.chaosFault();
+            switch (fault) {
+                .drop => return,
+                .cut => if (request.head.method == .PUT) {
+                    const body = request.readerExpectContinue(&.{}) catch return;
+                    body.discardAll((request.head.content_length orelse 0) / 2) catch {};
+                    return;
+                },
+                .slow => io.sleep(.fromMilliseconds(20), .awake) catch return,
+                else => {},
+            }
+            // `unavailable` stores nothing; `stored_unavailable` stores a PUT all the same, a
+            // delivery the client sees as failed, so it arrives twice.
+            const method = request.head.method;
+            var answer = f.receive(&request, fault != .unavailable) catch return;
             if (answer.drop) return;
+            if (fault == .unavailable or fault == .stored_unavailable and method == .PUT) answer = .{ .status = .service_unavailable };
+            if (fault == .short_body and answer.status == .ok and answer.body.len > 1) {
+                // A GET whose body ends early: content-length promises all of it.
+                out.interface.print("HTTP/1.1 200 OK\r\ncontent-length: {d}\r\n\r\n", .{answer.body.len}) catch return;
+                out.interface.writeAll(answer.body[0 .. answer.body.len / 2]) catch return;
+                out.interface.flush() catch {};
+                return;
+            }
             const retry_after = [_]std.http.Header{.{ .name = "retry-after", .value = "0" }};
             request.respond(answer.body, .{
                 .status = answer.status,
@@ -456,7 +498,7 @@ const FakeR2 = struct {
     /// Reads and records the request, then picks its answer: the failure for a target to
     /// fail, else 403 for a bad signature, the stored object for a GET (404 when missing)
     /// and storage for a PUT.
-    fn receive(f: *FakeR2, request: *std.http.Server.Request) !Answer {
+    fn receive(f: *FakeR2, request: *std.http.Server.Request, store: bool) !Answer {
         f.mutex.lockUncancelable(io);
         defer f.mutex.unlock(io);
         const a = f.arena.allocator();
@@ -485,7 +527,7 @@ const FakeR2 = struct {
         if (!signed) return .{ .status = .forbidden };
         switch (request.head.method) {
             .PUT => {
-                try f.objects.put(a, target, body);
+                if (store) try f.objects.put(a, target, body);
                 return .{};
             },
             .GET => return if (f.objects.get(target)) |b| .{ .body = b } else .{ .status = .not_found },
@@ -894,4 +936,47 @@ test "AC-10: an upload whose first try is cut mid-body is retried with exactly t
     try expect(std.mem.eql(u8, original, f.get(try std.fmt.allocPrint(a, "/" ++ bucket ++ "/{s}", .{key})) orelse return error.TestMissingFlac));
     try expectEqual(1, f.requests(.PUT, key));
     try expect(f.seen.items[f.seen.items.len - 1].signed);
+}
+
+test "chaos: under seeded R2 faults a publish succeeds or exits 1, never half-published, and a clean rerun converges" {
+    // A few seeds per run, from the runner's --seed: CI covers new fault sequences over time,
+    // and a failure prints the seed that replays it (`zig build test -Dtest-file=test/cli_publish.zig -- --seed=<n>`).
+    for (0..3) |i| {
+        const seed: u64 = (@as(u64, std.testing.random_seed) << 8) | i;
+        errdefer std.debug.print("chaos: failed with seed {d} (runner --seed=0x{x})\n", .{ seed, std.testing.random_seed });
+        var w: World = undefined;
+        try w.start(.{ .chaos = seed });
+        defer w.stop();
+        const a = w.arena.allocator();
+        const path = try w.folder(try story(a, &.{}));
+
+        const run = try w.publish(path);
+        w.f.mutex.lockUncancelable(io);
+        const faults = w.f.faults;
+        w.f.mutex.unlock(io);
+        std.debug.print("chaos: seed {d}: {d} faults, exit {d}\n", .{ seed, faults, run.code });
+        // A clear outcome: published, or stopped with the step that failed.
+        try expect(run.code == 0 or run.code == 1);
+        if (run.code == 0) try expect(std.mem.find(u8, run.out, "published " ++ story_id) != null);
+        // Never half-published: the feed has both translations or none.
+        const during = try w.feed();
+        try expect(during.len == 9 or during.len == 9 + 2 * 61);
+        if (run.code == 0) try expectEqual(9 + 2 * 61, during.len);
+
+        // The same folder with the faults gone converges on the published story.
+        w.f.mutex.lockUncancelable(io);
+        w.f.options.chaos = null;
+        w.f.mutex.unlock(io);
+        const again = try w.publish(path);
+        try expectEqual(0, again.code);
+        try expectEqual(9 + 2 * 61, (try w.feed()).len);
+        const it = try tilla.build(a, try expected("it"), w.dict_path);
+        const pt = try tilla.build(a, try expected("pt-BR"), w.dict_path);
+        const it_key = try std.fmt.allocPrint(a, prefix ++ "it/{s}.tilla.gz", .{&std.fmt.bytesToHex(it.sha256, .lower)});
+        const pt_key = try std.fmt.allocPrint(a, prefix ++ "pt-BR/{s}.tilla.gz", .{&std.fmt.bytesToHex(pt.sha256, .lower)});
+        try expectEqualSlices(u8, it.tilla, try gunzip(a, w.f.get(it_key) orelse return error.TestMissingItTilla));
+        try expectEqualSlices(u8, pt.tilla, try gunzip(a, w.f.get(pt_key) orelse return error.TestMissingPtTilla));
+        try expectEqualSlices(u8, opus, w.f.get(try std.fmt.allocPrint(a, prefix ++ "it/{s}.opus", .{&sha256Hex(opus)})) orelse return error.TestMissingOpus);
+        try expectEqualSlices(u8, flac, w.f.get(try std.fmt.allocPrint(a, prefix ++ "it/{s}.flac", .{&sha256Hex(flac)})) orelse return error.TestMissingFlac);
+    }
 }

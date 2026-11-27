@@ -281,8 +281,15 @@ const FakeSpeechify = struct {
     options: Options,
     streams: usize = 0,
     seen: std.ArrayList(Seen) = .empty,
+    /// Requests seen so far, numbering each for its chaos fault, and the faults injected.
+    count: u64 = 0,
+    faults: usize = 0,
 
     const Options = struct {
+        /// When set, every request draws a fault (harness.Chaos) from this seed and the
+        /// request's number, overriding `answers`: a closed connection, a cut request, a 503
+        /// with `Retry-After: 0`, a slow answer, or a stream that stops after two events.
+        chaos: ?u64 = null,
         /// The answer to each stream request, in order; past the end, the last one.
         answers: []const Answer = &.{.good},
         /// Each word's slot in a good stream.
@@ -365,7 +372,24 @@ const FakeSpeechify = struct {
         var out = stream.writer(io, &out_buf);
         var http: std.http.Server = .init(&in.interface, &out.interface);
         var request = http.receiveHead() catch return;
-        const reply = f.receive(&request) catch return;
+        const fault = f.chaosFault();
+        switch (fault) {
+            .drop => return,
+            .cut => {
+                const body = request.readerExpectContinue(&.{}) catch return;
+                body.discardAll((request.head.content_length orelse 0) / 2) catch {};
+                return;
+            },
+            .slow => io.sleep(.fromMilliseconds(20), .awake) catch return,
+            else => {},
+        }
+        var reply = f.receive(&request) catch return;
+        if (fault == .unavailable or fault == .stored_unavailable) reply = .{ .status = .service_unavailable };
+        if (fault == .short_body and reply.status == .ok) {
+            // The stream ends after two events, before `speech.done`, with no chunked framing.
+            reply.events = reply.events[0..@min(2, reply.events.len)];
+            reply.chunked = false;
+        }
         switch (reply.status) {
             .ok => {},
             .service_unavailable => {
@@ -386,6 +410,16 @@ const FakeSpeechify = struct {
         }
         if (reply.chunked) w.writeAll("0\r\n\r\n") catch return;
         w.flush() catch return;
+    }
+
+    /// The next request's fault (harness.Chaos): `none` unless chaos is on.
+    fn chaosFault(f: *FakeSpeechify) harness.Chaos {
+        f.mutex.lockUncancelable(io);
+        defer f.mutex.unlock(io);
+        f.count += 1;
+        const fault: harness.Chaos = .pick(f.options.chaos, f.count);
+        f.faults += @intFromBool(fault != .none);
+        return fault;
     }
 
     const Reply = struct { status: std.http.Status = .ok, body: []const u8 = "", events: []const []const u8 = &.{}, chunked: bool = true };
@@ -842,5 +876,37 @@ test "AC-10: an answer that keeps arriving runs past idle_timeout_ms on its firs
         try expectEqualStrings(Trickle.body, res.body);
         try expectEqual(2, t.count());
         try expect(took < 2500);
+    }
+}
+
+test "chaos: under seeded Speechify faults a narrate succeeds or exits 1, never a narration that disagrees with its files, and a clean rerun converges" {
+    // Seeds from the runner's --seed, as in cli_publish.zig's chaos test.
+    for (0..3) |i| {
+        const seed: u64 = (@as(u64, std.testing.random_seed) << 8) | i;
+        errdefer std.debug.print("chaos: failed with seed {d} (runner --seed=0x{x})\n", .{ seed, std.testing.random_seed });
+        var w: World = undefined;
+        try w.start(.{ .chaos = seed });
+        defer w.stop();
+        const a = w.arena.allocator();
+        const path = try w.folder(story_template);
+
+        const run = try w.run("narrate", &.{path});
+        w.f.mutex.lockUncancelable(io);
+        const faults = w.f.faults;
+        w.f.options.chaos = null;
+        w.f.mutex.unlock(io);
+        std.debug.print("chaos: seed {d}: {d} faults, exit {d}\n", .{ seed, faults, run.code });
+        try expect(run.code == 0 or run.code == 1);
+        // A narration in story.json always matches the files beside it; a failed run writes none.
+        const it = (try w.read()).translations.map.get("it") orelse return error.TestNoItalian;
+        if (run.code == 0) {
+            try w.expectFiles(try pcm(a, word_count, 100, 440));
+            try expectAudio(it, 100, times(100));
+        } else try expect(it.audio == null);
+
+        const again = try w.run("narrate", &.{path});
+        try expectEqual(0, again.code);
+        try w.expectFiles(try pcm(a, word_count, 100, 440));
+        try expectAudio((try w.read()).translations.map.get("it"), 100, times(100));
     }
 }

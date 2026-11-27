@@ -141,3 +141,42 @@ pub fn expectGolden(name: []const u8, data: []const u8) !void {
     std.debug.print("golden: test/golden/{s} differs at byte {d} ({d} bytes, now {d}); wrote test/golden/{s}\n", .{ name, at, ref.len, data.len, candidate });
     return error.GoldenMismatch;
 }
+
+/// Seeded fault injection for the fakes of outside services (OpenCode, Speechify, R2): which
+/// fault request number `n` gets under `seed`, the same every time for the same pair. Null
+/// `seed` means no faults. Each fake applies the ones its protocol allows.
+pub const Chaos = enum {
+    none,
+    /// A 503 with `Retry-After: 0`: the CLI retries at once.
+    unavailable,
+    /// The request is acted on (a PUT stored) but answered as a 503: it arrives twice.
+    stored_unavailable,
+    /// Answered 20 ms late.
+    slow,
+    /// The connection closes before any answer: the CLI waits its first 5 s.
+    drop,
+    /// An upload's connection closes halfway through its body.
+    cut,
+    /// The answer's body ends halfway, short of its `content-length`.
+    short_body,
+
+    /// How often each fault comes, out of their sum: the instant ones often, the ones that
+    /// cost the CLI's first 5 s wait rarely, so a seed's run takes seconds.
+    const weights = [_]struct { Chaos, u32 }{
+        .{ .none, 70 }, .{ .unavailable, 10 }, .{ .stored_unavailable, 6 }, .{ .slow, 8 },
+        .{ .drop, 3 },  .{ .cut, 2 },          .{ .short_body, 1 },
+    };
+
+    pub fn pick(seed: ?u64, n: u64) Chaos {
+        const s = seed orelse return .none;
+        var prng: std.Random.DefaultPrng = .init(s ^ (n *% 0x9e3779b97f4a7c15));
+        var total: u32 = 0;
+        for (weights) |w| total += w[1];
+        var at = prng.random().uintLessThan(u32, total);
+        for (weights) |w| {
+            if (at < w[1]) return w[0];
+            at -= w[1];
+        }
+        unreachable;
+    }
+};
