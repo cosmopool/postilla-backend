@@ -6,7 +6,8 @@ Terraform for everything [Deployment](../docs/specification.md#deployment) needs
 |---|---|
 | `cloudflare_r2_bucket.stories` | The public story bucket (`stories/` from `postilla publish`, `dict/` from postilla-content) |
 | `cloudflare_r2_bucket.backup` | The private bucket Litestream streams `postilla.db` to |
-| `cloudflare_r2_custom_domain.stories` | Optional public domain for the story bucket (`files_hostname`) |
+| `cloudflare_r2_custom_domain.stories` | Public domain of the story bucket (`files_hostname`, default `content.postilla.kaiodelphino.com`) |
+| `cloudflare_r2_custom_domain.staging_stories` | Public domain of staging's story bucket (`staging_files_hostname`, default `staging-content.postilla.kaiodelphino.com`) |
 | `cloudflare_account_token.cli` | The CLI's R2 key: objects in the story bucket only |
 | `cloudflare_account_token.litestream` | Litestream's R2 key: objects in the backup bucket only |
 | `random_password.author_token` | The bearer token for `POST /stories` and `DELETE /stories/<id>` |
@@ -35,6 +36,7 @@ Staging is a second `postilla-server` on the same VPS, with nothing shared but t
 | User, data | `postilla`, `/var/lib/postilla` | `postilla-staging`, `/var/lib/postilla-staging` |
 | Port, env | 8080, `/etc/postilla/env` | 8081, `/etc/postilla/staging.env` |
 | Story bucket | `postilla-stories` | `postilla-stories-staging` |
+| Public domain | `files_hostname` (`content.postilla.kaiodelphino.com`) | `staging_files_hostname` (`staging-content.postilla.kaiodelphino.com`) |
 | Backup | Litestream to `postilla-backup` | none: staging data is disposable |
 
 They share the CPU, memory and the egress guard's monthly count: load on staging slows
@@ -49,7 +51,7 @@ it's copied there.
   - Account → Workers R2 Storage: Edit
   - Account → Account API Tokens: Edit
   - Zone → DNS: Edit, on `kaiodelphino.com`
-  - Zone → Zone: Read, on `kaiodelphino.com` (for `files_hostname`)
+  - Zone → Zone: Read, on `kaiodelphino.com` (for `files_hostname` and `staging_files_hostname`)
 - A Vultr account and its API key (Account → API → Enable API), with your address allowed
   under the key's Access Control.
 - An SSH key pair.

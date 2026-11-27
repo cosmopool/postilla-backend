@@ -15,8 +15,13 @@ output "server_ipv6" {
 }
 
 output "files_url" {
-  description = "The story bucket's public base URL, when files_hostname is set."
+  description = "The story bucket's public base URL."
   value       = var.files_hostname == "" ? null : "https://${var.files_hostname}"
+}
+
+output "staging_files_url" {
+  description = "Staging's story bucket public base URL, when staging_files_hostname is set."
+  value       = var.staging_files_hostname == "" ? null : "https://${var.staging_files_hostname}"
 }
 
 # `tofu output -raw cli_env` prints the CLI's configuration for cli.env, apart from the

@@ -2,7 +2,8 @@
 cloudflare_account_id = "0123456789abcdef0123456789abcdef"
 zone_id               = "0123456789abcdef0123456789abcdef" # kaiodelphino.com
 api_hostname          = "api.postilla.kaiodelphino.com"
-# files_hostname      = "files.postilla.kaiodelphino.com"
+# files_hostname      = ""   # default content.postilla.kaiodelphino.com; "" turns the domain off
+# staging_files_hostname = "" # default staging-content.postilla.kaiodelphino.com
 ssh_public_key        = "ssh-ed25519 AAAA... you@laptop"
 deploy_ssh_public_key = "ssh-ed25519 AAAA... postilla-deploy"
 # ssh_allowed_cidrs   = ["203.0.113.7/32"]

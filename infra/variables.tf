@@ -21,9 +21,15 @@ variable "staging_api_hostname" {
 }
 
 variable "files_hostname" {
-  description = "Optional custom domain for the public story bucket (e.g. files.postilla.kaiodelphino.com), the base URL the app downloads stories from. Empty: no custom domain."
+  description = "Custom domain of the public story bucket: the base URL the app downloads stories from (built into the app, ARQ-06). Empty: no custom domain."
   type        = string
-  default     = ""
+  default     = "content.postilla.kaiodelphino.com"
+}
+
+variable "staging_files_hostname" {
+  description = "Custom domain of staging's story bucket: the base URL the app's dev flavor downloads from. Empty: no custom domain."
+  type        = string
+  default     = "staging-content.postilla.kaiodelphino.com"
 }
 
 variable "story_bucket" {

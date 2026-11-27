@@ -33,12 +33,23 @@ resource "cloudflare_r2_bucket" "staging_stories" {
   location   = var.r2_location
 }
 
-# The public base URL the app downloads from, when files_hostname is set.
+# The public base URL the app downloads from.
 resource "cloudflare_r2_custom_domain" "stories" {
   count       = var.files_hostname == "" ? 0 : 1
   account_id  = var.cloudflare_account_id
   bucket_name = cloudflare_r2_bucket.stories.name
   domain      = var.files_hostname
+  zone_id     = var.zone_id
+  enabled     = true
+  min_tls     = "1.2"
+}
+
+# Staging's public base URL, the one the app's dev flavor downloads from.
+resource "cloudflare_r2_custom_domain" "staging_stories" {
+  count       = var.staging_files_hostname == "" ? 0 : 1
+  account_id  = var.cloudflare_account_id
+  bucket_name = cloudflare_r2_bucket.staging_stories.name
+  domain      = var.staging_files_hostname
   zone_id     = var.zone_id
   enabled     = true
   min_tls     = "1.2"
