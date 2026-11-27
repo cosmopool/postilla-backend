@@ -62,4 +62,4 @@ What the Postilla learner app has to do with what the backend and postilla-conte
 
 ## Open on the app side
 
-- The public bucket's base URL (specification.md, Open): the app needs it to build every download URL.
+Nothing open. The bucket's base URL is built into the app (its ARQ-06).

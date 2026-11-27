@@ -38,6 +38,10 @@ Every branch a caller must handle multiplies codepaths; give callers one.
   - `../docs/CONTRACT.md`: when the change touches what it describes (`dict.db`).
   - These files describe the same thing; when they disagree, the code and all of them get fixed together.
 - Always follow `.agents/rules/testing.md` when writing/editing/reviewing tests.
+- Track every feature in `docs/roadmap.md`, "Progress" and "Next slices":
+  - Before starting work, mark it `in progress` in "Progress" and name the slice in "Next slices".
+  - In the same commit as the code, move it to `done`, or to `partial` with what's missing, and name the commit or slice.
+  - Anything left out, deferred or found along the way goes into "Next slices" (or a later version's section), never only into chat or a commit message.
 
 ## Naming conventions
 Follow the Zig style guide, as the pipeline in `../src` does:

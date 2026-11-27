@@ -1,6 +1,29 @@
 # Roadmap
 
-Planned work that isn't in [specification.md](specification.md) yet. When an item is built, it moves into the spec and leaves this file.
+Planned work that isn't in [specification.md](specification.md) yet, and the progress of v1.0. When an item is built, it moves into the spec and leaves this file; its row in "Progress" says so.
+
+## Progress
+
+What v1.0 has today, by spec section. Status: `done` · `partial` (what's missing) · `in progress` (slice) · `not started`. Every slice updates its rows in the commit that delivers them (AGENTS.md). As of 2026-11-27 the spec describes only what is built, so every section starts as `done`; the rows below record what the live deployment still lacks.
+
+| Spec section | Status | Notes |
+|---|---|---|
+| Encoding, Stories and translations, Cursor | done | |
+| Languages, genres, tags and authors | partial | Production has 0 tags; the learner app's catalogue needs 15. |
+| Files in R2 | partial | The public bucket has no public domain: `content.postilla.kaiodelphino.com` doesn't resolve (`files_hostname` unset), and staging's bucket has none either. `dict/latest` not confirmed in either bucket. |
+| Endpoints (`GET /stories`, lists, `POST /stories`, `DELETE /stories/<id>`) | done | Production's feed is empty: no story is published yet. |
+| The CLI (`translate`, `narrate`, `publish`) | done | Never run against production. |
+| Database, Configuration, Process, Deployment, Tests | done | |
+
+## Next slices
+
+In order. A slice moves its rows to `in progress` when it starts.
+
+1. **First stories, for the learner app's sync slice** (its roadmap, 2026-11-27):
+   - the 15 catalogue tags in the startup rows;
+   - `files_hostname` for production (`content.postilla.kaiodelphino.com`) and a public domain for staging (`staging-content.postilla.kaiodelphino.com`), applied with Terraform;
+   - `dict/latest` and its `dict/<sha256>.db.gz` in both buckets (postilla-content);
+   - the 8 real stories as `story.json` folders in `stories/`, narrated, listened to, published to staging, then to production after the app's end-to-end check.
 
 ## v1.2: Drafts
 

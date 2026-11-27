@@ -574,4 +574,4 @@ OpenCode, Speechify and R2 are system boundaries. Tests point their base URLs at
 
 ## Open
 
-- Where the app gets the bucket's public base URL. Only the manifest URL is built into the app (ARQ-06), so the manifest could carry it.
+Nothing open. The app builds in both base URLs, the API's and the bucket's public domain, with no manifest (the app's ARQ-06).
