@@ -21,7 +21,9 @@ pub const Config = struct {
 
 const gpa = std.heap.smp_allocator;
 
-/// specification.md, Database. The temp table's CHECK refuses a schema newer than 1.
+/// specification.md, Database. The temp table's CHECK refuses a schema newer than 1. Every
+/// statement names its columns, so a database a later, compatible binary extended still works
+/// with this one (a rollback, infra/postilla-update).
 const schema =
     \\CREATE TEMP TABLE version_check (user_version CHECK (user_version <= 1));
     \\INSERT INTO version_check SELECT user_version FROM pragma_user_version;
@@ -36,13 +38,13 @@ const schema =
     \\  target INTEGER NOT NULL, translate INTEGER NOT NULL) WITHOUT ROWID;
     \\CREATE TRIGGER IF NOT EXISTS language_keep BEFORE DELETE ON language BEGIN SELECT RAISE(ABORT, 'language ids are permanent'); END;
     \\CREATE TRIGGER IF NOT EXISTS language_id_fixed BEFORE UPDATE OF id ON language BEGIN SELECT RAISE(ABORT, 'language ids are permanent'); END;
-    \\INSERT OR IGNORE INTO language VALUES
+    \\INSERT OR IGNORE INTO language (id, name, target, translate) VALUES
     \\  ('it', 'Italiano', 1, 0), ('pt-BR', 'Português brasileiro', 0, 1), ('en', 'English', 0, 0);
-    \\INSERT OR IGNORE INTO genre VALUES ('quotidiano', 'Quotidiano', 'Cotidiano', 'Everyday'), ('famiglia', 'Famiglia', 'Família', 'Family'),
+    \\INSERT OR IGNORE INTO genre (id, it, pt_br, en) VALUES ('quotidiano', 'Quotidiano', 'Cotidiano', 'Everyday'), ('famiglia', 'Famiglia', 'Família', 'Family'),
     \\  ('viaggio', 'Viaggio', 'Viagem', 'Travel'), ('mistero', 'Mistero', 'Mistério', 'Mystery'), ('lettere', 'Lettere', 'Cartas', 'Letters'),
     \\  ('racconto', 'Racconto', 'Conto', 'Short story'), ('classici', 'Classici', 'Clássicos', 'Classics');
-    \\INSERT OR IGNORE INTO author VALUES ('collodi', 'Carlo Collodi');
-    \\INSERT OR IGNORE INTO tag VALUES ('caffe', 'Caffè', 'Café', 'Coffee'), ('casa', 'Casa', 'Casa', 'Home'),
+    \\INSERT OR IGNORE INTO author (id, name) VALUES ('collodi', 'Carlo Collodi');
+    \\INSERT OR IGNORE INTO tag (id, it, pt_br, en) VALUES ('caffe', 'Caffè', 'Café', 'Coffee'), ('casa', 'Casa', 'Casa', 'Home'),
     \\  ('cibo', 'Cibo', 'Comida', 'Food'), ('citta', 'Città', 'Cidade', 'City'), ('cucina', 'Cucina', 'Cozinha', 'Cooking'),
     \\  ('emilia-romagna', 'Emilia-Romagna', 'Emília-Romanha', 'Emilia-Romagna'), ('famiglia', 'Famiglia', 'Família', 'Family'),
     \\  ('mercato', 'Mercato', 'Mercado', 'Market'), ('nonna', 'Nonna', 'Nonna', 'Grandma'),

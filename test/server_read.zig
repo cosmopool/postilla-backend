@@ -470,6 +470,31 @@ test "AC-F3: a SQLite error answers 500 with no body and the connection keeps se
     try expectEqualSlices(u8, genres, after.body);
 }
 
+test "startup and the lists work on a database a newer, compatible binary extended (rollback)" {
+    var h: Harness = undefined;
+    try h.start();
+    defer h.stop();
+
+    // What a later binary's compatible migrations may leave behind (specification.md,
+    // Database): a new column with a default on every table, and a new table. user_version
+    // stays 1, so this binary must still start and serve on it.
+    try h.sql(
+        \\ALTER TABLE story ADD COLUMN later INTEGER NOT NULL DEFAULT 0;
+        \\ALTER TABLE genre ADD COLUMN later TEXT NOT NULL DEFAULT '';
+        \\ALTER TABLE tag ADD COLUMN later TEXT NOT NULL DEFAULT '';
+        \\ALTER TABLE author ADD COLUMN later TEXT NOT NULL DEFAULT '';
+        \\ALTER TABLE language ADD COLUMN later INTEGER NOT NULL DEFAULT 0;
+        \\CREATE TABLE later (id INTEGER PRIMARY KEY);
+    );
+    var listener = try server.listen(io, &h.config);
+    listener.deinit(io);
+
+    try expectBody(&h, "GET /languages HTTP/1.1", languages);
+    try expectBody(&h, "GET /genres HTTP/1.1", genres);
+    try expectBody(&h, "GET /tags HTTP/1.1", tags);
+    try expectBody(&h, "GET /authors HTTP/1.1", authors);
+}
+
 test "AC-F4: startup fails on a newer schema or a database path in a missing directory" {
     var h: Harness = undefined;
     try h.start();

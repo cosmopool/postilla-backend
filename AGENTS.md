@@ -50,6 +50,7 @@ Follow the Zig style guide, as the pipeline in `../src` does:
 - Functions: camelCase (`parseDraftNew`, `publishStory`). The file is the namespace, so no module prefixes; `pub` marks what other files use.
 - Variables, fields, constants and enum fields: snake_case (`draft_id`, `body_cap`, `.review`)
 - The SQL schema and the binary wire formats (magics, field order, state values) are contracts: change them only with a migration or a version bump, documented in `docs/specification.md`.
+- Migrations stay compatible with the binary before them, so a rollback always starts (`docs/specification.md`, Database): add a table or a column with a default; never drop, rename or repurpose one in the same release. Every SQL statement names its columns: no positional `INSERT … VALUES`, no `SELECT *`.
 
 ## Testing
 - Suites must be isolated: free port + temp SQLite file per run, no shared state.

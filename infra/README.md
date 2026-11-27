@@ -184,8 +184,14 @@ only `postilla-update production` and `postilla-update staging`. Root owns both 
 the deploy user can't lift the limit; any other command fails at sudo. A leaked key can
 install a binary, which still has to answer `GET /languages`, and nothing else.
 
-Terraform ignores `user_data` on a running server, so a new `deploy_ssh_public_key` doesn't
-reach it: `infra/install-deploy-key.sh [root@host] [public key]` writes the same line over root
+Terraform ignores `user_data` on a running server, so a changed `infra/postilla-update` reaches it
+only by hand, over root SSH:
+
+```
+ssh root@api.postilla.kaiodelphino.com 'cat > /usr/local/sbin/postilla-update.new && chmod 0755 /usr/local/sbin/postilla-update.new && mv /usr/local/sbin/postilla-update.new /usr/local/sbin/postilla-update' < infra/postilla-update
+```
+
+Nor does a new `deploy_ssh_public_key`: `infra/install-deploy-key.sh [root@host] [public key]` writes the same line over root
 SSH and prints the key fingerprint before and after.
 
 The server's host key is pinned in `infra/known_hosts`, so the job refuses any other

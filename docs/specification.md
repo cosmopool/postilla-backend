@@ -503,6 +503,13 @@ A `POST /stories` runs in one `BEGIN IMMEDIATE` transaction: read the story's cu
 
 Startup creates the schema and inserts the initial rows with `INSERT OR IGNORE`, so a fresh `postilla.db` works with no manual step, and a row edited by hand keeps its edit across restarts. Later rows are added by hand with SQL. Startup sets `PRAGMA user_version = 1`, the schema version, and refuses to start (logged, exit 1) on a database whose `user_version` is above 1.
 
+Migrations are compatible with the binary before them, so a rollback (`postilla-update` restoring the previous binary, or deploying an older tag) never meets a database it can't read:
+
+- A migration may add a table, or a column with a default. It never drops, renames or changes the meaning of a table or column in the same release that stops using it.
+- `user_version` is the oldest schema a binary must know to read the database, not the newest one applied. A compatible migration leaves it as it is, so an older binary still starts.
+- Removing what an earlier release stopped using is a contract step: it raises `user_version` to the binary's own schema, ships in a release of its own after the one that stopped using it, and is the point a rollback can't go back past.
+- Every statement names its columns (no positional `INSERT … VALUES`, no `SELECT *`), so a binary works on a table a later one extended. `test/server_read.zig` checks this on a database with a column added to every table and a new table.
+
 | Table | Initial rows |
 |---|---|
 | `language` | `it` Italiano (target 1, translate 0) · `pt-BR` Português brasileiro (0, 1) · `en` English (0, 0) |

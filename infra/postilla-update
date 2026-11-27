@@ -46,10 +46,18 @@ if up; then
 fi
 echo "postilla-update: the new $unit did not answer GET /languages" >&2
 journalctl -u "$unit" -n 20 --no-pager >&2 || true
+# The previous binary can read what the new one may have migrated only because migrations are
+# compatible (docs/specification.md, Database); the log says whether it came back.
+result="no previous binary to roll back to"
 if [ -e "$bin.prev" ]; then
   mv "$bin.prev" "$bin"
   systemctl restart "$unit"
-  up && echo "postilla-update: rolled back to the previous $unit" >&2
+  if up; then
+    result="rolled back to the previous binary"
+  else
+    result="the previous binary did not come back either; $unit is down"
+  fi
 fi
-logger -t postilla-update "a new $unit failed to start; rolled back"
+echo "postilla-update: $result" >&2
+logger -t postilla-update "a new $unit failed to start; $result"
 exit 1
