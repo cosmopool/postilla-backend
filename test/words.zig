@@ -217,7 +217,11 @@ test "AC-9: a package that imports only `words` builds and runs without fetching
     defer gpa.free(env.stderr);
     const key = ".global_cache_dir = \"";
     const at = (std.mem.indexOf(u8, env.stdout, key) orelse return error.NoGlobalCache) + key.len;
-    const global = env.stdout[at..][0 .. std.mem.indexOfScalar(u8, env.stdout[at..], '"') orelse return error.NoGlobalCache];
+    const reported = env.stdout[at..][0 .. std.mem.indexOfScalar(u8, env.stdout[at..], '"') orelse return error.NoGlobalCache];
+    // zig env prints the cache relative to the cwd when it's inside it (CI's setup-zig puts both
+    // caches in the workspace's .zig-cache); the symlinks need it absolute.
+    const global = try std.Io.Dir.cwd().realPathFileAlloc(io, reported, gpa);
+    defer gpa.free(global);
     try tmp.dir.createDirPath(io, "cache");
     var real = try std.Io.Dir.openDirAbsolute(io, global, .{ .iterate = true });
     defer real.close(io);
