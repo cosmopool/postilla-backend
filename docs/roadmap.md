@@ -9,10 +9,10 @@ What v1.0 has today, by spec section. Status: `done` · `partial` (what's missin
 | Spec section | Status | Notes |
 |---|---|---|
 | Encoding, Stories and translations, Cursor | done | |
-| Languages, genres, tags and authors | in progress (first stories) | Staging serves the 15 tags (`v0.2.3`, 2026-11-27); production still has 0. |
-| Files in R2 | in progress (first stories) | Both public domains live; `dict/latest` in both buckets. Staging has the 8 stories' files; production has none. |
-| Endpoints (`GET /stories`, lists, `POST /stories`, `DELETE /stories/<id>`) | done | Staging's feed has the 8 stories (16 records, cursors 1..16); production's is empty. |
-| The CLI (`translate`, `narrate`, `publish`) | done | `publish` ran against staging (2026-11-27); never against production. |
+| Languages, genres, tags and authors | done | Both servers serve the 15 tags (`v0.2.4`, 2026-11-27). |
+| Files in R2 | done | Both public domains live; `dict/latest` and the 8 stories' files in both buckets, every `.tilla.gz` checked against its sha256 (2026-11-27). |
+| Endpoints (`GET /stories`, lists, `POST /stories`, `DELETE /stories/<id>`, `GET /version`) | done | Both feeds have the 8 stories, the same 16 records. |
+| The CLI (`translate`, `narrate`, `publish`) | done | `publish` ran against staging and production (2026-11-27). |
 | Database, Configuration, Process, Deployment, Tests | done | |
 
 ## Next slices
@@ -22,7 +22,7 @@ In order. A slice moves its rows to `in progress` when it starts.
 1. **First stories, for the learner app's sync slice** (its roadmap, 2026-11-27):
    - the 15 catalogue tags in the startup rows (done, `284d940`; on staging since `v0.2.3`, not on production);
    - `dict/latest` and its `dict/<sha256>.db.gz` in both buckets (done 2026-11-27 by a one-off upload of `dict-1.0.0.db.gz`, sha `dfae4ada…`, the build the app bundles);
-   - the 8 real stories as `story.json` folders in `stories/` (done; pt-BR titles written by hand), narrated and listened to (done 2026-11-27), published to staging (done 2026-11-27: 16 records, every `.tilla.gz` checked against its sha256), then to production after the app's end-to-end check (the check passed 2026-11-27: the app's `test/live/staging_test.dart` syncs and reads all 8 from staging); production publish waits for the owner's OK and the R2 token rotation below;
+   - the 8 real stories as `story.json` folders in `stories/` (done; pt-BR titles written by hand), narrated and listened to (done 2026-11-27), published to staging (done 2026-11-27: 16 records, every `.tilla.gz` checked against its sha256), then to production after the app's end-to-end check (the check passed 2026-11-27: the app's `test/live/staging_test.dart` syncs and reads all 8 from staging); published to production (done 2026-11-27, `v0.2.4`, with Terraform's production CLI credentials in the environment for that run, since `cli.env`'s R2 lines point at another bucket; the same 16 records and sha256s as staging);
    - testing R4, seeded faults (done 2026-11-27): `harness.Chaos` and a `chaos` seed on the OpenCode, Speechify and R2 fakes; a `chaos:` test per CLI command (exit 0 or 1, nothing half-written or half-published, a clean rerun converges), three seeds per run from `--seed`. 30 extra publish seeds passed; no CLI bug found yet;
    - testing R3, golden files (done 2026-11-27): `test/golden/` (three `.tilla`, one body per wire format), compared byte for byte with `.candidate` files on a difference; `zig build test-formats` checks them against every `.ksy` (CI job `formats`, kaitai-struct-compiler 0.11 by sha256); the app's reader tests read the same `.tilla`;
    - testing R2, assertions (done 2026-11-27): the rule in `AGENTS.md`; `tilla.build` asserts the `story.json` preconditions, every reader rule as it writes (spans, bands, exact size) and its wire limits at compile time; list bodies assert their computed size. One test input with `level` 0 was fixed;
@@ -32,7 +32,7 @@ In order. A slice moves its rows to `in progress` when it starts.
    - CI tests every push and pull request (done 2026-11-27, `test.yml`, which `deploy.yml` calls; adds `zig fmt --check`);
    - CI deploys a tag to staging (done 2026-11-27, `f513b7f`, `0ea4bfc`, `62285b7`): the tests run once, `build` keeps the binary 90 days, and production ships the tag's staging artifact; no tag has an artifact yet (`v0.2.3` predates `build`), so production needs a new tag first. The deploy key reached the running server through `infra/install-deploy-key.sh`, and Terraform's admin key is now `toshiba_tv` (applied);
    - both public domains in `infra/`, defaulting to the real names (done and applied 2026-11-27, `a47f02f`);
-   - rotate both CLI R2 tokens (`tofu apply -replace=cloudflare_account_token.cli -replace=cloudflare_account_token.cli_staging`): their secrets were printed in a working session on 2026-11-27. Deferred by the owner. Until then, the local `cli.env` points its R2 lines at a `postilla-content` bucket with another key instead of Terraform's `postilla-stories`, so production `publish` must wait for this step.
+   - rotate both CLI R2 tokens (`tofu apply -replace=cloudflare_account_token.cli -replace=cloudflare_account_token.cli_staging`): their secrets were printed in a working session on 2026-11-27. Deferred by the owner. Until then, the local `cli.env` points its R2 lines at a `postilla-content` bucket with another key instead of Terraform's `postilla-stories`, so production `publish` takes Terraform's credentials from `tofu output cli_env` for each run until it's fixed.
 
 2. **postilla-content: publish `dict.db` from the build** ([content-handoff.md](content-handoff.md) §4). The 2026-11-27 upload was by hand; nothing publishes the next build yet.
 3. **postilla-content: `form_norm` and `word_norm` from the shared `words` module** (content-handoff.md §3). Changes the dictionary build, so `band_words` of stories published before it may differ from a later build's.
