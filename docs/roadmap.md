@@ -10,7 +10,7 @@ What v1.0 has today, by spec section. Status: `done` · `partial` (what's missin
 |---|---|---|
 | Encoding, Stories and translations, Cursor | done | |
 | Languages, genres, tags and authors | in progress (first stories) | Production has 0 tags; the learner app's catalogue needs 15. |
-| Files in R2 | in progress (first stories) | The public bucket has no public domain: `content.postilla.kaiodelphino.com` doesn't resolve (`files_hostname` unset), and staging's bucket has none either. `dict/latest` not confirmed in either bucket. |
+| Files in R2 | in progress (first stories) | Both public domains live; `dict/latest` in both buckets. No story files yet. |
 | Endpoints (`GET /stories`, lists, `POST /stories`, `DELETE /stories/<id>`) | done | Production's feed is empty: no story is published yet. |
 | The CLI (`translate`, `narrate`, `publish`) | done | Never run against production. |
 | Database, Configuration, Process, Deployment, Tests | done | |
@@ -21,11 +21,13 @@ In order. A slice moves its rows to `in progress` when it starts.
 
 1. **First stories, for the learner app's sync slice** (its roadmap, 2026-11-27):
    - the 15 catalogue tags in the startup rows (done, `284d940`; not deployed yet);
-   - `files_hostname` for production (`content.postilla.kaiodelphino.com`) and a public domain for staging (`staging-content.postilla.kaiodelphino.com`), applied with Terraform;
-   - `dict/latest` and its `dict/<sha256>.db.gz` in both buckets (postilla-content);
+   - `dict/latest` and its `dict/<sha256>.db.gz` in both buckets (done 2026-11-27 by a one-off upload of `dict-1.0.0.db.gz`, sha `dfae4ada…`, the build the app bundles);
    - the 8 real stories as `story.json` folders in `stories/` (done; pt-BR titles written by hand), narrated, listened to, published to staging, then to production after the app's end-to-end check;
    - both public domains in `infra/`, defaulting to the real names (done and applied 2026-11-27, `a47f02f`);
    - rotate both CLI R2 tokens (`tofu apply -replace=cloudflare_account_token.cli -replace=cloudflare_account_token.cli_staging`): their secrets were printed in a working session on 2026-11-27. Deferred by the owner. Until then, the local `cli.env` points its R2 lines at a `postilla-content` bucket with another key instead of Terraform's `postilla-stories`, so production `publish` must wait for this step.
+
+2. **postilla-content: publish `dict.db` from the build** ([content-handoff.md](content-handoff.md) §4). The 2026-11-27 upload was by hand; nothing publishes the next build yet.
+3. **postilla-content: `form_norm` and `word_norm` from the shared `words` module** (content-handoff.md §3). Changes the dictionary build, so `band_words` of stories published before it may differ from a later build's.
 
 ## v1.2: Drafts
 
