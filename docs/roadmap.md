@@ -20,10 +20,11 @@ What v1.0 has today, by spec section. Status: `done` · `partial` (what's missin
 In order. A slice moves its rows to `in progress` when it starts.
 
 1. **First stories, for the learner app's sync slice** (its roadmap, 2026-11-27):
-   - the 15 catalogue tags in the startup rows;
+   - the 15 catalogue tags in the startup rows (done, `284d940`; not deployed yet);
    - `files_hostname` for production (`content.postilla.kaiodelphino.com`) and a public domain for staging (`staging-content.postilla.kaiodelphino.com`), applied with Terraform;
    - `dict/latest` and its `dict/<sha256>.db.gz` in both buckets (postilla-content);
-   - the 8 real stories as `story.json` folders in `stories/`, narrated, listened to, published to staging, then to production after the app's end-to-end check.
+   - the 8 real stories as `story.json` folders in `stories/` (done; pt-BR titles written by hand), narrated, listened to, published to staging, then to production after the app's end-to-end check;
+   - staging's public domain in `infra/` (done, `a5c5be2`; not applied yet).
 
 ## v1.2: Drafts
 
