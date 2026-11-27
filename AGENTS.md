@@ -42,6 +42,7 @@ Every branch a caller must handle multiplies codepaths; give callers one.
   - Before starting work, mark it `in progress` in "Progress" and name the slice in "Next slices".
   - In the same commit as the code, move it to `done`, or to `partial` with what's missing, and name the commit or slice.
   - Anything left out, deferred or found along the way goes into "Next slices" (or a later version's section), never only into chat or a commit message.
+- Use /caveman-commit skill to generate every commit message
 
 ## Naming conventions
 Follow the Zig style guide, as the pipeline in `../src` does:
