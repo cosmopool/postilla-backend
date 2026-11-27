@@ -23,8 +23,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # The generated Dart normalization against the Zig one; only this job needs the Dart SDK.
-  dart:
+  # Every test, once: the Zig suite and the generated Dart normalization against the Zig one
+  # (test-dart, the only one that needs the Dart SDK).
+  tests:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -34,10 +35,11 @@ jobs:
       # HTTP client fails the second xiph.org download (HttpConnectionClosing); --fetch=all
       # fetches them up front and works.
       - run: zig build --fetch=all
+      - run: zig build test
       - run: zig build test-dart
 
   deploy:
-    needs: dart
+    needs: tests
     runs-on: ubuntu-24.04
     environment: ${{ inputs.server || 'staging' }}
     env:
@@ -58,9 +60,8 @@ jobs:
       # The Zig version comes from minimum_zig_version in build.zig.zon.
       - uses: mlugg/setup-zig@v2
 
-      # As in the dart job: fetch the lazy dependencies before the build does.
+      # As in the tests job: fetch the lazy dependencies before the build does.
       - run: zig build --fetch=all
-      - run: zig build test
 
       # As deploy, whose key runs only postilla-update (infra/README.md, GitHub Actions).
       - name: Deploy

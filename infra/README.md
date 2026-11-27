@@ -158,8 +158,8 @@ ssh root@… journalctl -u postilla-server -u litestream -u caddy -n 50
 
 ## GitHub Actions
 
-`.github/workflows/deploy.yml` runs `zig build test-dart` in a `dart` job (the only one with the
-Dart SDK), then, once it passes, `zig build test` and `deploy.sh` in the `deploy` job. Both
+`.github/workflows/deploy.yml` runs `zig build test` and `zig build test-dart` in a `tests` job
+(the only one with the Dart SDK), then, once it passes, `deploy.sh` in the `deploy` job. Both
 jobs run `zig build --fetch=all` first: on a cold cache the build fetches the lazy C
 dependencies concurrently, and Zig 0.17's HTTP client fails the second download from
 xiph.org with `HttpConnectionClosing`.
