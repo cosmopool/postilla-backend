@@ -1,0 +1,23 @@
+# The deploy's smoke test (infra/smoke.sh), every 6 hours and on demand, against both servers:
+# a server that stopped answering, or whose lists or feed stopped parsing, fails this run, and
+# GitHub emails the repository's watchers (infra/README.md, GitHub Actions).
+name: smoke
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        url: [https://staging-api.postilla.kaiodelphino.com, https://api.postilla.kaiodelphino.com]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: infra/smoke.sh "${{ matrix.url }}"

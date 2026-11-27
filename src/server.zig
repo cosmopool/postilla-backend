@@ -170,6 +170,8 @@ fn route(request: *std.http.Server.Request, d: db.Db, token: []const u8) !void {
     var params = std.mem.splitScalar(u8, target[@min(q + 1, target.len)..], '&');
     if (request.head.method == .GET) {
         if (std.mem.eql(u8, path, "/stories")) return feed(request, d, &params);
+        // What a deploy's smoke test and "what's live?" ask (infra/smoke.sh).
+        if (std.mem.eql(u8, path, "/version")) return reason(request, .ok, version ++ "\n");
         if (std.mem.eql(u8, path, "/genres")) return list(request, d, "GNRS", "SELECT id, it, pt_br, en, count(*) OVER (), 7 + sum(16 + octet_length(id) + octet_length(it) + octet_length(pt_br) + octet_length(en)) OVER () FROM genre ORDER BY id");
         if (std.mem.eql(u8, path, "/tags")) return list(request, d, "TAGS", "SELECT id, it, pt_br, en, count(*) OVER (), 7 + sum(16 + octet_length(id) + octet_length(it) + octet_length(pt_br) + octet_length(en)) OVER () FROM tag ORDER BY id");
         if (std.mem.eql(u8, path, "/authors")) return list(request, d, "AUTH", "SELECT id, name, count(*) OVER (), 7 + sum(8 + octet_length(id) + octet_length(name)) OVER () FROM author ORDER BY id");

@@ -21,9 +21,9 @@ jobs:
   tests:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: mlugg/setup-zig@v2
-      - uses: dart-lang/setup-dart@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1.8.2
       # On a cold cache the build fetches the lazy dependencies concurrently, and Zig 0.17's
       # HTTP client fails the second xiph.org download (HttpConnectionClosing); --fetch=all
       # fetches them up front and works.

@@ -25,9 +25,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Before anything uses the ref: a tag must be vMAJOR.MINOR.PATCH (its name ends up in shell
+  # commands and --version), and production deploys only a tag.
+  ref:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check the ref
+        env:
+          REF: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          SERVER: ${{ inputs.server || 'staging' }}
+        run: |
+          if [ "$REF_TYPE" = tag ]; then
+            if ! [[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::refusing tag '$REF': not vMAJOR.MINOR.PATCH"
+              exit 1
+            fi
+          elif [ "$SERVER" = production ]; then
+            echo "::error::production deploys a version tag; $REF is a branch"
+            exit 1
+          fi
+
   # Every test, as on every push and pull request (test.yml). Production skips it, as it
   # skips build.
   tests:
+    needs: ref
     if: inputs.server != 'production'
     uses: ./.github/workflows/test.yml
 
@@ -38,15 +60,15 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       # Full history and tags: the build embeds the latest tag and the commit (--version).
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       # The Zig version comes from minimum_zig_version in build.zig.zon.
-      - uses: mlugg/setup-zig@v2
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
       # As in the tests job: fetch the lazy dependencies before the build does.
       - run: zig build --fetch=all
       - run: zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: postilla-server
           path: zig-out/bin/postilla-server
@@ -54,25 +76,17 @@ jobs:
           retention-days: 90
 
   deploy:
-    needs: build
+    needs: [ref, build]
     # Staging: once build passes. Production: build is skipped, and the binary comes from the
     # tag's staging run.
     if: >-
-      !cancelled() && (needs.build.result == 'success' ||
+      !cancelled() && needs.ref.result == 'success' && (needs.build.result == 'success' ||
       (inputs.server == 'production' && needs.build.result == 'skipped'))
     runs-on: ubuntu-24.04
     environment: ${{ inputs.server || 'staging' }}
     env:
       SERVER: ${{ inputs.server || 'staging' }}
     steps:
-      - name: Production takes only a version tag
-        if: env.SERVER == 'production' && github.ref_type != 'tag'
-        env:
-          REF: ${{ github.ref_name }}
-        run: |
-          echo "::error::production deploys a version tag; $REF is a branch"
-          exit 1
-
       # The tag's push run, which deployed it to staging, and its artifact, unexpired.
       - name: Find the staging build
         id: source
@@ -96,8 +110,8 @@ jobs:
           echo "run=$run" >> "$GITHUB_OUTPUT"
 
       # Only for infra/deploy.sh and infra/known_hosts; nothing is built here.
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: postilla-server
           path: bin
@@ -114,3 +128,10 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 0600 ~/.ssh/deploy_key
           POSTILLA_DEPLOY_KEY=~/.ssh/deploy_key POSTILLA_SERVER_BIN="$PWD/bin/postilla-server" infra/deploy.sh "$SERVER" deploy@api.postilla.kaiodelphino.com
+
+      # Through the public URL, as the app talks to it: the commit it runs is the one shipped,
+      # and the lists and the feed parse. postilla-update already checked GET /languages locally.
+      - name: Smoke test
+        run: |
+          if [ "$SERVER" = production ]; then url=https://api.postilla.kaiodelphino.com; else url=https://staging-api.postilla.kaiodelphino.com; fi
+          infra/smoke.sh "$url" "$GITHUB_SHA"

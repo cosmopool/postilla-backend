@@ -160,10 +160,13 @@ ssh root@… journalctl -u postilla-server -u litestream -u caddy -n 50
 
 `.github/workflows/test.yml` runs on every branch push and pull request: `zig build test`,
 `zig build test-dart` (the only job with the Dart SDK) and `zig fmt --check`; a newer push to the
-same branch cancels the run it replaces. `.github/workflows/deploy.yml` runs three jobs, each once
-the one before passes: `tests` calls `test.yml`; `build` builds the
-release binary and uploads it as the `postilla-server` artifact; `deploy` downloads it and runs
-`deploy.sh` with `POSTILLA_SERVER_BIN`, so it ships the exact file `build` made and has no Zig.
+same branch cancels the run it replaces. `.github/workflows/deploy.yml` runs four jobs, each once
+the one before passes: `ref` refuses a tag that isn't `vMAJOR.MINOR.PATCH` (its name reaches shell
+commands and `--version`) and a production run on a branch; `tests` calls `test.yml`; `build`
+builds the release binary and uploads it as the `postilla-server` artifact; `deploy` downloads it,
+runs `deploy.sh` with `POSTILLA_SERVER_BIN`, so it ships the exact file `build` made and has no
+Zig, then runs `infra/smoke.sh` against that server's public URL with the commit it shipped: a
+server that runs another commit, or whose lists or feed don't parse, fails the run.
 `tests` and `build` run `zig build --fetch=all` first: on a cold cache the build fetches the lazy C
 dependencies concurrently, and Zig 0.17's HTTP client fails the second download from
 xiph.org with `HttpConnectionClosing`.
@@ -174,6 +177,13 @@ xiph.org with `HttpConnectionClosing`.
   `build` and ships the artifact of the tag's successful push run, the binary staging runs.
   Artifacts are kept 90 days; a tag with none (expired, or tagged before the `build` job,
   v0.2.3 and older) fails, and the fix is a new tag.
+- `.github/workflows/smoke.yml` runs the same smoke test against both servers every 6 hours and
+  on demand (Actions → smoke → Run workflow). A failed run is GitHub's email to the watchers.
+  Servers older than `GET /version` (v0.2.3 and older) fail it until their next deploy.
+- `infra/smoke.sh <base URL> [commit]` runs it by hand, against either server or a local one.
+- Every action is pinned by commit SHA, with its version in a comment. To update one, take the
+  commit of its new tag (`git ls-remote https://github.com/actions/checkout 'refs/tags/v7.0.2^{}'`,
+  or the tag itself when it isn't annotated) and change both.
 
 The job logs in as `deploy@api.postilla.kaiodelphino.com` with the repository secret
 `DEPLOY_SSH_KEY`, the private half of `deploy_ssh_public_key` (`~/.ssh/postilla-deploy`).

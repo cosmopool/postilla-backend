@@ -165,6 +165,22 @@ test "AC-1, AC-2, AC-3, AC-4, AC-11: a fresh database serves the seed rows of th
     try expectBody(&h, "GET /authors HTTP/1.1", authors);
 }
 
+test "GET /version answers what the binary was built from, as --version prints it" {
+    var h: Harness = undefined;
+    try h.start();
+    defer h.stop();
+
+    // The latest tag and the commit (build.zig): what a deploy's smoke test compares.
+    try expectReason(&h, "GET /version HTTP/1.1", 200, server.version ++ "\n");
+    try expect(std.mem.startsWith(u8, server.version, "v") or std.mem.startsWith(u8, server.version, "untagged"));
+    // Then a space and the 40-hex-digit commit (`-dirty` after it for an uncommitted tree).
+    const commit = server.version[(std.mem.indexOfScalar(u8, server.version, ' ') orelse return error.TestNoCommit) + 1 ..];
+    try expect(commit.len == 40 or std.mem.eql(u8, commit[40..], "-dirty"));
+    for (commit[0..40]) |ch| try expect(std.ascii.isHex(ch));
+    // Only GET: a query string is ignored like on the other reads.
+    try expectReason(&h, "GET /version?x=1 HTTP/1.1", 200, server.version ++ "\n");
+}
+
 test "AC-11: startup creates the schema and triggers and stamps user_version 1" {
     var h: Harness = undefined;
     try h.start();
