@@ -22,7 +22,7 @@ In order. A slice moves its rows to `in progress` when it starts.
 1. **First stories, for the learner app's sync slice** (its roadmap, 2026-11-27):
    - the 15 catalogue tags in the startup rows (done, `284d940`; not deployed yet);
    - `dict/latest` and its `dict/<sha256>.db.gz` in both buckets (done 2026-11-27 by a one-off upload of `dict-1.0.0.db.gz`, sha `dfae4ada…`, the build the app bundles);
-   - the 8 real stories as `story.json` folders in `stories/` (done; pt-BR titles written by hand), narrated, listened to, published to staging, then to production after the app's end-to-end check;
+   - the 8 real stories as `story.json` folders in `stories/` (done; pt-BR titles written by hand), narrated and listened to (done 2026-11-27), published to staging, then to production after the app's end-to-end check;
    - both public domains in `infra/`, defaulting to the real names (done and applied 2026-11-27, `a47f02f`);
    - rotate both CLI R2 tokens (`tofu apply -replace=cloudflare_account_token.cli -replace=cloudflare_account_token.cli_staging`): their secrets were printed in a working session on 2026-11-27. Deferred by the owner. Until then, the local `cli.env` points its R2 lines at a `postilla-content` bucket with another key instead of Terraform's `postilla-stories`, so production `publish` must wait for this step.
 
