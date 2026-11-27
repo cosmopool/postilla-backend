@@ -9,10 +9,10 @@ What v1.0 has today, by spec section. Status: `done` · `partial` (what's missin
 | Spec section | Status | Notes |
 |---|---|---|
 | Encoding, Stories and translations, Cursor | done | |
-| Languages, genres, tags and authors | in progress (first stories) | Production has 0 tags; the learner app's catalogue needs 15. |
-| Files in R2 | in progress (first stories) | Both public domains live; `dict/latest` in both buckets. No story files yet. |
-| Endpoints (`GET /stories`, lists, `POST /stories`, `DELETE /stories/<id>`) | done | Production's feed is empty: no story is published yet. |
-| The CLI (`translate`, `narrate`, `publish`) | done | Never run against production. |
+| Languages, genres, tags and authors | in progress (first stories) | Staging serves the 15 tags (`v0.2.3`, 2026-11-27); production still has 0. |
+| Files in R2 | in progress (first stories) | Both public domains live; `dict/latest` in both buckets. Staging has the 8 stories' files; production has none. |
+| Endpoints (`GET /stories`, lists, `POST /stories`, `DELETE /stories/<id>`) | done | Staging's feed has the 8 stories (16 records, cursors 1..16); production's is empty. |
+| The CLI (`translate`, `narrate`, `publish`) | done | `publish` ran against staging (2026-11-27); never against production. |
 | Database, Configuration, Process, Deployment, Tests | done | |
 
 ## Next slices
@@ -20,9 +20,10 @@ What v1.0 has today, by spec section. Status: `done` · `partial` (what's missin
 In order. A slice moves its rows to `in progress` when it starts.
 
 1. **First stories, for the learner app's sync slice** (its roadmap, 2026-11-27):
-   - the 15 catalogue tags in the startup rows (done, `284d940`; not deployed yet);
+   - the 15 catalogue tags in the startup rows (done, `284d940`; on staging since `v0.2.3`, not on production);
    - `dict/latest` and its `dict/<sha256>.db.gz` in both buckets (done 2026-11-27 by a one-off upload of `dict-1.0.0.db.gz`, sha `dfae4ada…`, the build the app bundles);
-   - the 8 real stories as `story.json` folders in `stories/` (done; pt-BR titles written by hand), narrated and listened to (done 2026-11-27), published to staging, then to production after the app's end-to-end check;
+   - the 8 real stories as `story.json` folders in `stories/` (done; pt-BR titles written by hand), narrated and listened to (done 2026-11-27), published to staging (done 2026-11-27: 16 records, every `.tilla.gz` checked against its sha256), then to production after the app's end-to-end check;
+   - CI deploys a tag to staging (done 2026-11-27, `f513b7f`, `0ea4bfc`, `62285b7`): the tests run once, `build` keeps the binary 90 days, and production ships the tag's staging artifact; no tag has an artifact yet (`v0.2.3` predates `build`), so production needs a new tag first. The deploy key reached the running server through `infra/install-deploy-key.sh`, and Terraform's admin key is now `toshiba_tv` (applied);
    - both public domains in `infra/`, defaulting to the real names (done and applied 2026-11-27, `a47f02f`);
    - rotate both CLI R2 tokens (`tofu apply -replace=cloudflare_account_token.cli -replace=cloudflare_account_token.cli_staging`): their secrets were printed in a working session on 2026-11-27. Deferred by the owner. Until then, the local `cli.env` points its R2 lines at a `postilla-content` bucket with another key instead of Terraform's `postilla-stories`, so production `publish` must wait for this step.
 
