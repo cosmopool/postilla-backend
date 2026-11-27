@@ -2,6 +2,7 @@
 //! gzip and the sha256 of the `.tilla` out. `postilla publish` calls it per translation.
 
 const std = @import("std");
+const assert = std.debug.assert;
 const c = @import("c");
 const db = @import("server").db;
 const wire = @import("server").wire;
@@ -32,12 +33,32 @@ pub const Input = struct {
     } = .{},
 };
 
+/// Counts and spans are `u16`s on the wire (tilla.md).
+const count_max = std.math.maxInt(u16);
+
+/// The header's fixed-size fields: magic and version, id, lang, original, level, tag count,
+/// part, adapted, words, band_words, audio_ms, opus_sha256, opus_size, paragraph count.
+const fixed_size = 6 + 16 + 8 + 8 + 1 + 2 + 2 + 1 + 2 + 2 * 4 + 4 + 32 + 4 + 2;
+comptime {
+    assert(fixed_size == 96);
+    // A sentence's byte length fits a span's u16 end, and the word total fits `words`.
+    assert(count_max == std.math.maxInt(@FieldType(words.Span, "end")));
+}
+
 /// Builds `in`'s `.tilla`, looking `band_words` up in the `dict.db` at `dict` only for the
 /// Italian original. An input that would break a reader rule is refused before writing.
+///
+/// What `postilla publish` checked in `story.json` (level, work and part, the languages) is
+/// asserted, not refused: a wrong value here is a bug in the caller. The reader rules are
+/// asserted again as the bytes are written, the pair of the app's checks after reading.
 pub fn build(arena: std.mem.Allocator, in: Input, dict: [:0]const u8) !struct { tilla: []u8, gz: []u8, sha256: [32]u8 } {
     const n = in.narration;
+    // Reader rules 3 and 4, checked at the story.json boundary.
+    assert(in.level >= 1 and in.level <= 6);
+    assert((in.work.len == 0) == (in.part == 0));
+    assert(in.lang.text().len > 0 and in.original.text().len > 0);
     if (in.title.len == 0 or in.subtitle.len == 0 or in.paragraphs.len == 0) return error.Empty;
-    if (in.tags.len > 65535 or in.paragraphs.len > 65535) return error.TooMany;
+    if (in.tags.len > count_max or in.paragraphs.len > count_max) return error.TooMany;
     const spans = try arena.alloc(words.Span, 1 << 16);
     const key_buf = try arena.alloc(u8, 2 << 16);
 
@@ -59,7 +80,7 @@ pub fn build(arena: std.mem.Allocator, in: Input, dict: [:0]const u8) !struct { 
 
     // First pass: check every sentence and the narration, count the words and size the file
     // (96 bytes of fixed-size header fields, then the strs and paragraphs).
-    var size: usize = 96 + wire.strSize(in.title) + wire.strSize(in.subtitle) + wire.strSize(in.genre) +
+    var size: usize = fixed_size + wire.strSize(in.title) + wire.strSize(in.subtitle) + wire.strSize(in.genre) +
         wire.strSize(in.work) + wire.strSize(in.author) + wire.strSize(in.license);
     for (in.tags) |tag| size += wire.strSize(tag);
     var total: usize = 0;
@@ -69,13 +90,13 @@ pub fn build(arena: std.mem.Allocator, in: Input, dict: [:0]const u8) !struct { 
     var untimed = true;
     for (in.paragraphs) |p| {
         if (p.len == 0) return error.Empty;
-        if (p.len > 65535) return error.TooMany;
+        if (p.len > count_max) return error.TooMany;
         size += 2;
         for (p) |text| {
-            if (text.len == 0 or text.len > 65535) return error.BadSentence;
+            if (text.len == 0 or text.len > count_max) return error.BadSentence;
             const ws = words.split(text, spans);
             total += ws.len;
-            if (total > 65535) return error.TooManyWords;
+            if (total > count_max) return error.TooManyWords;
             size += wire.strSize(text) + 2 + 4 * ws.len + 8;
             if (italian) for (ws) |w| {
                 var keys: [4][]const u8 = undefined;
@@ -101,6 +122,10 @@ pub fn build(arena: std.mem.Allocator, in: Input, dict: [:0]const u8) !struct { 
     }
     const silent = n.audio_ms == 0 and n.opus_size == 0 and std.mem.allEqual(u8, &n.opus_sha256, 0);
     if ((n.times.len != 0 and n.times.len != sentences) or silent != untimed) return error.BadNarration;
+    // Reader rule 7: the bands count every word in Italian, and none elsewhere.
+    var banded: usize = 0;
+    for (band_words) |b| banded += b;
+    assert(banded == if (italian) total else 0);
 
     const file = try arena.alloc(u8, size);
     var w: wire.Writer = .{ .buf = file };
@@ -132,7 +157,13 @@ pub fn build(arena: std.mem.Allocator, in: Input, dict: [:0]const u8) !struct { 
             w.str(text);
             const ws = words.split(text, spans);
             w.int(u16, @intCast(ws.len));
+            var prev_end: usize = 0;
             for (ws) |s| {
+                // Reader rule 6, which `words.split` promises: in order, inside the text, on
+                // UTF-8 character boundaries.
+                assert(s.start < s.end and s.end <= text.len and s.start >= prev_end);
+                assert(!isContinuation(text, s.start) and !isContinuation(text, s.end));
+                prev_end = s.end;
                 w.int(u16, s.start);
                 w.int(u16, s.end);
             }
@@ -144,6 +175,10 @@ pub fn build(arena: std.mem.Allocator, in: Input, dict: [:0]const u8) !struct { 
         }
     }
 
+    // The first pass sized the file exactly (reader rule 2: no bytes after the last paragraph).
+    assert(w.len == size);
+    assert(n.times.len == 0 or n.times.len == sentences);
+
     var sha256: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(file, &sha256, .{});
     var gz: std.Io.Writer.Allocating = try .initCapacity(arena, 64);
@@ -152,4 +187,9 @@ pub fn build(arena: std.mem.Allocator, in: Input, dict: [:0]const u8) !struct { 
     try z.writer.writeAll(file);
     try z.finish();
     return .{ .tilla = file, .gz = gz.written(), .sha256 = sha256 };
+}
+
+/// Whether byte `i` of `text` is inside a UTF-8 character (the end of the text never is).
+fn isContinuation(text: []const u8, i: usize) bool {
+    return i < text.len and text[i] & 0xc0 == 0x80;
 }

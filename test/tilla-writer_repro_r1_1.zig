@@ -9,6 +9,7 @@ fn base() !tilla.Input {
     return .{
         .lang = try .fromText("pt-BR"),
         .original = try .fromText("it"),
+        .level = 1, // checked at the story.json boundary, so tilla.build asserts it
         .title = "A casa",
         .subtitle = "Uma história",
         .paragraphs = &.{&.{"Casa."}},

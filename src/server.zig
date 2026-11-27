@@ -213,6 +213,8 @@ fn list(request: *std.http.Server.Request, d: db.Db, magic: *const [4]u8, sql: [
             if (c.sqlite3_column_type(stmt, i) == c.SQLITE_INTEGER) w.int(u8, @intCast(c.sqlite3_column_int(stmt, i))) else w.str(st.bytes(i));
         }
     }
+    // The query sized the body from the same rows: a mismatch is a bug in its SQL.
+    std.debug.assert(w.len == body.len);
     try request.respond(w.written(), .{ .extra_headers = &.{.{ .name = "content-type", .value = "application/octet-stream" }} });
 }
 

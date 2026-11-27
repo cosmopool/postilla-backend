@@ -18,6 +18,7 @@ The backend is Zig (0.17, the `minimum_zig_version` in `build.zig.zon`) with ven
 ## Correctness by construction
 - Distinct types for ids, enums and units: `enum` for closed sets (`const State = enum(u8) { moderating = 1, … }`), non-exhaustive enums for ids (`const DraftId = enum(u32) { _ };`). A bare `u32` doesn't stop mixing a draft id with a cursor.
 - Parse, don't validate: the boundary parse fn (`parseDraftNew(body) !DraftNew`) is the only code that fills the struct, and the one place allowed to return an error for bad input; the handler answers 400. Past the boundary, values are trusted. Keep structs by value; no opaque heap handles.
+- Assert programmer invariants, never input. Input goes through the parse boundary and gets an error; past it, `std.debug.assert` what the code relies on: preconditions a caller guarantees (`tilla.build` asserts the `level` and `work`/`part` that `story.json` parsing checked), postconditions (a body written to exactly the size computed for it), and limits tied to wire types with `comptime assert` (`count_max == maxInt(u16)`). For a format, assert each reader rule right before writing, the pair of the reader's check after reading. Releases stay `ReleaseSafe`, so a failed assertion stops the process instead of writing bad bytes; assertions add no codepath a caller must handle. No assertion on data an operator can edit by hand (rows in `postilla.db`): that is input too.
 
 ## Fewer codepaths
 Every branch a caller must handle multiplies codepaths; give callers one.
