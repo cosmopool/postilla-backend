@@ -1,0 +1,23 @@
+# Fuzzing beyond the corpus (test/fuzz.zig): every Monday and on demand, a bounded run of
+# `zig build test --fuzz` on the boundary parsers and the HTTP layer. A failure prints the
+# failing input; add it to that test's corpus with the fix (infra/README.md, GitHub Actions).
+name: fuzz
+
+on:
+  schedule:
+    - cron: "41 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+      # As in test.yml: fetch the lazy dependencies before the build does.
+      - run: zig build --fetch=all
+      - run: zig build test -Dtest-file=test/fuzz.zig --fuzz=5M

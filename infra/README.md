@@ -181,6 +181,8 @@ xiph.org with `HttpConnectionClosing`.
   on demand (Actions → smoke → Run workflow). A failed run is GitHub's email to the watchers.
   Servers older than `GET /version` (v0.2.3 and older) fail it until their next deploy.
 - `infra/smoke.sh <base URL> [commit]` runs it by hand, against either server or a local one.
+- `.github/workflows/fuzz.yml` fuzzes the parsers and the HTTP layer every Monday and on
+  demand (`test/fuzz.zig`, 5M runs). A failure prints the input; it goes into the test's corpus.
 - Every action is pinned by commit SHA, with its version in a comment. To update one, take the
   commit of its new tag (`git ls-remote https://github.com/actions/checkout 'refs/tags/v7.0.2^{}'`,
   or the tag itself when it isn't annotated) and change both.

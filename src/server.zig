@@ -281,27 +281,22 @@ fn feed(request: *std.http.Server.Request, d: db.Db, params: *std.mem.SplitItera
 /// translation in one transaction (specification.md, `POST /stories`).
 fn publish(request: *std.http.Server.Request, d: db.Db) !void {
     const len = request.head.content_length orelse return reason(request, .bad_request, "body: length required\n");
-    var buf: [22 + 40 * 255]u8 = undefined;
+    var buf: [wire.story_max]u8 = undefined;
     if (len > buf.len) return reason(request, .bad_request, "body: too large\n");
     const body = buf[0..@intCast(len)];
     try (try request.readerExpectContinue(&.{})).readSliceAll(body);
-    var r: wire.Reader = .{ .buf = body };
-    r.header("STRY") catch |err| return reason(request, .bad_request, if (err == error.BadMagic) "body: bad magic\n" else if (err == error.BadVersion) "body: bad version\n" else "body: wrong length\n");
-    const id = r.storyId() catch return reason(request, .bad_request, "body: wrong length\n");
-    const n = r.int(u8) catch 0;
-    if (n == 0 or body.len != 22 + 40 * @as(usize, n)) return reason(request, .bad_request, "body: wrong length\n");
     var message: [128]u8 = undefined; // names a language id: at most 8 characters
-    var original = false;
-    var langs: [255]wire.Lang = undefined;
-    var hashes: [255][]const u8 = undefined;
-    for (langs[0..n], hashes[0..n], 0..) |*l, *h, i| {
-        l.* = r.lang() catch return reason(request, .bad_request, "lang: empty or not ASCII\n");
-        h.* = try r.bytes(32);
-        for (langs[0..i]) |p| if (std.mem.eql(u8, &p.bytes, &l.bytes))
-            return reason(request, .bad_request, try std.fmt.bufPrint(&message, "lang: repeated id '{s}'\n", .{l.text()}));
-        original = original or std.mem.eql(u8, l.text(), "it");
-    }
-    if (!original) return reason(request, .bad_request, "lang: no 'it'\n");
+    var story: wire.Story = .{};
+    wire.parseStory(body, &story) catch |err| return reason(request, .bad_request, switch (err) {
+        error.BadMagic => "body: bad magic\n",
+        error.BadVersion => "body: bad version\n",
+        error.WrongLength => "body: wrong length\n",
+        error.BadLang => "lang: empty or not ASCII\n",
+        error.RepeatedLang => try std.fmt.bufPrint(&message, "lang: repeated id '{s}'\n", .{story.langs[story.n].text()}),
+        error.NoOriginal => "lang: no 'it'\n",
+    });
+    const id = story.id;
+    const langs, const hashes = story.translations();
     try d.exec("BEGIN IMMEDIATE");
     defer if (c.sqlite3_get_autocommit(d.handle) == 0) d.exec("ROLLBACK") catch {};
     const rows = try d.prepare("SELECT lang, change FROM story WHERE id = ?1");
@@ -309,7 +304,7 @@ fn publish(request: *std.http.Server.Request, d: db.Db) !void {
     _ = c.sqlite3_bind_blob(rows.handle, 1, &id.bytes, 16, null);
     while (try rows.step()) {
         if (c.sqlite3_column_int(rows.handle, 1) == 2) return reason(request, .conflict, "story removed\n");
-        for (langs[0..n]) |*l| {
+        for (langs) |*l| {
             if (std.mem.eql(u8, l.text(), rows.bytes(0))) break;
         } else return reason(request, .conflict, try std.fmt.bufPrint(&message, "{s}: published, missing from body\n", .{rows.bytes(0)}));
     }
@@ -322,10 +317,10 @@ fn publish(request: *std.http.Server.Request, d: db.Db) !void {
     );
     defer _ = c.sqlite3_finalize(upsert.handle);
     _ = c.sqlite3_bind_blob(upsert.handle, 1, &id.bytes, 16, null);
-    for (langs[0..n], hashes[0..n]) |*lang, hash| {
+    for (langs, hashes) |*lang, *hash| {
         const l = lang.text();
         _ = c.sqlite3_bind_text(upsert.handle, 2, l.ptr, @intCast(l.len), null);
-        _ = c.sqlite3_bind_blob(upsert.handle, 3, hash.ptr, 32, null);
+        _ = c.sqlite3_bind_blob(upsert.handle, 3, hash, 32, null);
         if (!try upsert.step()) return reason(request, .bad_request, try std.fmt.bufPrint(&message, "lang: unknown id '{s}'\n", .{l}));
         _ = c.sqlite3_reset(upsert.handle);
     }

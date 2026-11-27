@@ -194,7 +194,16 @@ fn module(
         .imports = &.{.{ .name = "c", .module = c_mod }},
     });
     m.addIncludePath(sqlite_dir);
-    m.addCSourceFile(.{
+    // A static library, like `codecs`: `zig build test --fuzz` instruments the code it compiles
+    // into a test, and C compiled into a module would need coverage hooks Zig's fuzzer doesn't
+    // provide; a linked library isn't instrumented.
+    const sqlite = b.addLibrary(.{ .name = "sqlite3", .linkage = .static, .root_module = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    }) });
+    m.linkLibrary(sqlite);
+    sqlite.root_module.addCSourceFile(.{
         .file = sqlite_dir.path(b, "sqlite3.c"),
         .flags = &.{
             "-DSQLITE_THREADSAFE=2",

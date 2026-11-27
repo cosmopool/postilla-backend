@@ -55,6 +55,7 @@ Follow the Zig style guide, as the pipeline in `../src` does:
 ## Testing
 - Suites must be isolated: free port + temp SQLite file per run, no shared state.
 - OpenCode, Speechify and R2 are faked with local servers that return recorded responses; tests never call them.
+- Fuzz tests (`test/fuzz.zig`, `std.testing.fuzz`) only for hostile input: the boundary parsers and the HTTP layer. Each has a corpus of real and broken inputs, which `zig build test` replays, and checks properties (no panic, only declared errors, a round trip through the writer). A parser function is the public API for bytes, the stated exception to testing rule 1. A failure the fuzzer finds goes into the corpus with its fix.
 
 ## Decisions are mine — interview, don't assume
 - Facts: if it can be found in the environment (filesystem, tools, git), look it up — never ask me for it.

@@ -581,6 +581,8 @@ Integration tests through the public entry points only (see `.agents/rules/testi
 
 `zig build test` runs every `test/*.zig` (each its own test binary) except `test/harness.zig`, which starts the real server in-process on a free port with a temp SQLite file under `.zig-cache/tmp/`, and sends raw HTTP over TCP so a test can send any bytes. `-Dtest-file=test/<name>.zig` runs one file; `-Dcoverage` runs them under `kcov` into `coverage/kcov`. Malformed `since`, `lang` and `STRY` bodies are integration cases like any other.
 
+`test/fuzz.zig` fuzzes the boundary parsers (`wire.parseStory`, `wire.StoryId.parse`, `wire.Reader.lang`) and the HTTP layer through the harness. `zig build test` replays each fuzz test's corpus; `zig build test -Dtest-file=test/fuzz.zig --fuzz=<runs>` fuzzes (the `fuzz` workflow runs 5M every Monday). SQLite and the audio codecs are static libraries, so the fuzzer's instrumentation stays out of their C code.
+
 OpenCode, Speechify and R2 are system boundaries. Tests point their base URLs at local fake servers that return recorded responses, so no test spends credits or needs network access. The Italian moderation test set is the exception: it calls Jev for real and runs only on demand, with `zig build test-moderation` (`test/live/moderation.zig`, never part of `zig build test`). It reads `POSTILLA_OPENCODE_KEY` and `POSTILLA_OPENCODE_URL` from the environment or `cli.env`; every clean text must pass the default threshold, `0.9`, and every hateful one, one per option other than `none`, must be rejected.
 
 ## Open

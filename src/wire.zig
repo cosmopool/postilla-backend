@@ -139,3 +139,65 @@ pub const Reader = struct {
         if (r.pos != r.buf.len) return error.Trailing;
     }
 };
+
+/// A `POST /stories` body (specification.md): the story id and every translation's language
+/// and sha256, in body order.
+pub const Story = struct {
+    id: StoryId = .{},
+    n: u8 = 0,
+    langs: [255]Lang = @splat(.{}),
+    hashes: [255][32]u8 = @splat(@splat(0)),
+
+    /// The translations read so far.
+    pub fn translations(s: *const Story) struct { []const Lang, []const [32]u8 } {
+        return .{ s.langs[0..s.n], s.hashes[0..s.n] };
+    }
+};
+
+pub const StoryError = error{ BadMagic, BadVersion, WrongLength, BadLang, RepeatedLang, NoOriginal };
+
+/// The largest body: the header, then 255 translations of 40 bytes.
+pub const story_max = 22 + 40 * 255;
+
+/// Parses a `STRY` body into `s`, checking in this order (specification.md): magic and version;
+/// at least one translation and exactly `22 + 40 × lang_count` bytes; every `lang`; no `lang`
+/// twice; one `lang` is `it`. On `RepeatedLang`, `s.langs[s.n]` is the language that repeated.
+pub fn parseStory(body: []const u8, s: *Story) StoryError!void {
+    s.* = .{};
+    var r: Reader = .{ .buf = body };
+    r.header("STRY") catch |err| return switch (err) {
+        error.BadMagic, error.BadVersion => |e| e,
+        else => error.WrongLength,
+    };
+    s.id = r.storyId() catch return error.WrongLength;
+    const n = r.int(u8) catch 0;
+    if (n == 0 or body.len != 22 + 40 * @as(usize, n)) return error.WrongLength;
+    var original = false;
+    for (0..n) |i| {
+        s.langs[i] = r.lang() catch return error.BadLang;
+        // The length was checked above, so the hash is there.
+        s.hashes[i] = (r.bytes(32) catch unreachable)[0..32].*;
+        s.n = @intCast(i);
+        for (s.langs[0..i]) |p| if (std.mem.eql(u8, &p.bytes, &s.langs[i].bytes)) return error.RepeatedLang;
+        original = original or std.mem.eql(u8, s.langs[i].text(), "it");
+    }
+    s.n = n;
+    if (!original) return error.NoOriginal;
+    std.debug.assert(r.pos == body.len);
+}
+
+/// Writes a `STRY` body for `s` into `buf` (at least `22 + 40 × s.n` bytes): what the CLI sends,
+/// and the inverse of `parseStory`.
+pub fn writeStory(s: *const Story, buf: []u8) []u8 {
+    std.debug.assert(buf.len >= 22 + 40 * @as(usize, s.n));
+    var w: Writer = .{ .buf = buf };
+    w.header("STRY");
+    w.bytes(&s.id.bytes);
+    w.int(u8, s.n);
+    const langs, const hashes = s.translations();
+    for (langs, hashes) |l, h| {
+        w.bytes(&l.bytes);
+        w.bytes(&h);
+    }
+    return w.written();
+}

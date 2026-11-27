@@ -13,6 +13,7 @@
 - Default to integration tests: set up real state (a temp SQLite file, a running server on a free port), trigger the behavior through the public entry point (an HTTP request), and assert on the resulting state (the response bytes, the feed).
 - Do NOT write a unit test for every function. Internal/private functions are implementation details — they are tested indirectly through the API.
 - A test that calls an internal helper directly is a smell. Ask: "Can this be expressed as an API-level test instead?"
+- Exception: a fuzz test calls a boundary parser (`wire.parseStory`, `wire.StoryId.parse`) directly. For bytes, the parser is the public API, and the fuzzer needs millions of runs a second, not an HTTP round trip each (`test/fuzz.zig` also fuzzes through HTTP).
 
 ### 2. Don't write tests too early
 
