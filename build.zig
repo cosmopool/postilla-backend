@@ -103,7 +103,7 @@ pub fn build(b: *std.Build) void {
             "fixed.c",   "float.c",     "format.c",         "lpc.c",            "md5.c",
             "memory.c",  "window.c",    "stream_decoder.c", "stream_encoder.c", "stream_encoder_framing.c",
         },
-        .flags = &.{ "-DHAVE_INTTYPES_H", "-DHAVE_LROUND", "-DFLAC__HAS_OGG=0", "-DPACKAGE_VERSION=\"1.5.0\"" },
+        .flags = &.{ "-DHAVE_INTTYPES_H", "-DHAVE_LROUND", "-DHAVE_FSEEKO", "-DFLAC__HAS_OGG=0", "-DPACKAGE_VERSION=\"1.5.0\"" },
     });
 
     const server_exe = b.addExecutable(.{ .name = "postilla-server", .root_module = server_mod });
