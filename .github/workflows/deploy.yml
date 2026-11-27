@@ -30,6 +30,10 @@ jobs:
       - uses: actions/checkout@v7
       - uses: mlugg/setup-zig@v2
       - uses: dart-lang/setup-dart@v1
+      # On a cold cache the build fetches the lazy dependencies concurrently, and Zig 0.17's
+      # HTTP client fails the second xiph.org download (HttpConnectionClosing); --fetch=all
+      # fetches them up front and works.
+      - run: zig build --fetch=all
       - run: zig build test-dart
 
   deploy:
@@ -54,6 +58,8 @@ jobs:
       # The Zig version comes from minimum_zig_version in build.zig.zon.
       - uses: mlugg/setup-zig@v2
 
+      # As in the dart job: fetch the lazy dependencies before the build does.
+      - run: zig build --fetch=all
       - run: zig build test
 
       # As deploy, whose key runs only postilla-update (infra/README.md, GitHub Actions).
