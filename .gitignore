@@ -12,3 +12,6 @@ infra/*.tfstate
 infra/*.tfstate.*
 infra/terraform.tfvars
 infra/backend.hcl
+
+# Golden-file candidates (test/harness.zig, expectGolden): review, then rename over the reference.
+test/golden/*.candidate

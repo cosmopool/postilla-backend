@@ -525,3 +525,19 @@ test "AC-F2: a publish whose client closes before the body is complete changes n
     try publish(&h, stry(0x22, &.{tr("it", 0xbb)}));
     try expectFeed(&h, "lang=it", feed(&.{record(0x22, "it", 1, 0xbb, 1)}));
 }
+
+// Golden wire bodies (test/golden/), read by the formats' `.ksy` check: a STRY body, and the
+// feed after two publishes and a removal, with both change values and zero-padded languages.
+test "golden STRY and FEED bodies" {
+    var h: Harness = undefined;
+    try h.start();
+    defer h.stop();
+
+    const body = stry(0x11, &.{ tr("it", 0xaa), tr("pt-BR", 0xbb) });
+    try harness.expectGolden("stry.bin", body);
+    try publish(&h, body);
+    try publish(&h, stry(0x22, &.{ tr("it", 0xcc), tr("en", 0xdd) }));
+    try remove(&h, uuid(0x22));
+    var buf: [4096]u8 = undefined;
+    try harness.expectGolden("feed.bin", try getFeed(&h, "since=0&lang=it,pt-BR,en", &buf));
+}

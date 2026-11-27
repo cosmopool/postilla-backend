@@ -533,3 +533,42 @@ test "AC-F1: a dict.db that can't be opened, isn't a database or has no form tab
     }
     try expectError(error.Sqlite, tilla.build(a, in, empty));
 }
+
+// Golden `.tilla` files (test/golden/): the writer's bytes for fixed inputs, byte for byte. The
+// formats' `.ksy` check and the app's reader tests read the same files, so a writer change that
+// moves a byte shows up here first.
+test "golden .tilla files: the writer's bytes don't move" {
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const dict = try dictDb(tmp);
+    defer gpa.free(dict);
+
+    try golden("tilla-it-narrated.tilla", try tilla.build(a, try narrated(), dict));
+    try golden("tilla-pt-BR.tilla", try tilla.build(a, try translation("pt-BR", &.{
+        &.{ "Era uma vez um gato.", "Morava numa casa à beira-mar, porque amava o ar." },
+        &.{"Um pouco de pão, e a porta-janela aberta."},
+    }), dict));
+    // A story written for Postilla, and the word rule's edge cases: digits, a leading and a
+    // final apostrophe, accents, a hyphen between letters, a decimal and a year.
+    var standalone = try translation("it", &.{
+        &.{ "Negli anni '80 la città aveva 3,5 milioni di abitanti.", "'Sto caffè è un po' amaro." },
+        &.{"Arrivò il treno delle 18 da Bologna-centrale."},
+    });
+    standalone.level = 1;
+    standalone.tags = &.{};
+    standalone.work = "";
+    standalone.part = 0;
+    standalone.author = "";
+    standalone.adapted = false;
+    standalone.license = "LicenseRef-Postilla";
+    try golden("tilla-it-standalone.tilla", try tilla.build(a, standalone, dict));
+}
+
+fn golden(name: []const u8, built: anytype) !void {
+    // The file name is the sha256 the app checks; the golden is the `.tilla` before gzip.
+    try std.testing.expectEqualSlices(u8, &built.sha256, &sha256(built.tilla));
+    try @import("harness").expectGolden(name, built.tilla);
+}

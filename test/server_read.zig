@@ -537,3 +537,17 @@ test "AC-F4: startup fails on a newer schema or a database path in a missing dir
         return error.TestExpectedError;
     } else |_| {}
 }
+
+// Golden list bodies (test/golden/), read by the formats' `.ksy` check: the seed rows.
+test "golden list bodies" {
+    var h: Harness = undefined;
+    try h.start();
+    defer h.stop();
+
+    inline for (.{ .{ "/languages", "lang.bin" }, .{ "/genres", "gnrs.bin" }, .{ "/tags", "tags.bin" }, .{ "/authors", "auth.bin" } }) |l| {
+        var buf: [4096]u8 = undefined;
+        const r = try h.send("GET " ++ l[0] ++ " HTTP/1.1", "", &buf);
+        try expectEqual(200, r.status);
+        try harness.expectGolden(l[1], r.body);
+    }
+}

@@ -113,3 +113,31 @@ pub fn gzip(a: std.mem.Allocator, data: []const u8) ![]u8 {
     try z.finish();
     return gz.written();
 }
+
+/// Golden files (test/golden/): `data` must equal `test/golden/<name>` byte for byte. On a
+/// mismatch, or with no reference yet, `data` goes to `test/golden/<name>.candidate` and the test
+/// fails; the reference is never overwritten. Review the candidate (the formats' `.ksy` check
+/// reads every reference, `zig build test-formats`), then rename it over the reference.
+pub fn expectGolden(name: []const u8, data: []const u8) !void {
+    const dir = try Io.Dir.cwd().createDirPathOpen(io, "test/golden", .{});
+    defer dir.close(io);
+    var path_buf: [256]u8 = undefined;
+    const candidate = try std.fmt.bufPrint(&path_buf, "{s}.candidate", .{name});
+    var ref_buf: [64 * 1024]u8 = undefined;
+    const ref = dir.readFile(io, name, &ref_buf) catch |err| switch (err) {
+        error.FileNotFound => {
+            try dir.writeFile(io, .{ .sub_path = candidate, .data = data });
+            std.debug.print("golden: test/golden/{s} is missing; wrote test/golden/{s}\n", .{ name, candidate });
+            return error.GoldenMissing;
+        },
+        else => return err,
+    };
+    if (std.mem.eql(u8, ref, data)) {
+        dir.deleteFile(io, candidate) catch {};
+        return;
+    }
+    try dir.writeFile(io, .{ .sub_path = candidate, .data = data });
+    const at = std.mem.indexOfDiff(u8, ref, data) orelse @min(ref.len, data.len);
+    std.debug.print("golden: test/golden/{s} differs at byte {d} ({d} bytes, now {d}); wrote test/golden/{s}\n", .{ name, at, ref.len, data.len, candidate });
+    return error.GoldenMismatch;
+}

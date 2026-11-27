@@ -159,6 +159,11 @@ pub fn build(b: *std.Build) void {
         }
     }
 
+    // The golden files against the formats' Kaitai specs (tools/check_formats.py): needs
+    // kaitai-struct-compiler and the `kaitaistruct` Python package, so it has its own step.
+    b.step("test-formats", "Check test/golden/ against docs/formats/*.ksy (needs kaitai-struct-compiler and kaitaistruct)")
+        .dependOn(&b.addSystemCommand(&.{ "python3", "tools/check_formats.py" }).step);
+
     // The Dart check needs the Dart SDK, so it has its own step (and CI job).
     b.step("test-dart", "Check the generated Dart normalization against the Zig one (needs dart on PATH)").dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("test/dart/words.zig"),

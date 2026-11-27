@@ -31,3 +31,17 @@ jobs:
       - run: zig build test
       - run: zig build test-dart
       - run: zig fmt --check build.zig src test
+
+  # The golden files (test/golden/, which `zig build test` compares byte for byte) against the
+  # formats' Kaitai specs: a spec that drifts from the writer fails here.
+  formats:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install kaitai-struct-compiler 0.11 and its Python runtime
+        run: |
+          curl -fsSL -o ksc.deb https://github.com/kaitai-io/kaitai_struct_compiler/releases/download/0.11/kaitai-struct-compiler_0.11_all.deb
+          echo "28d6b6ec917e394ed41cb6f62169a8f6b584d9a5242cbe0785b0568d95e032ea  ksc.deb" | sha256sum -c -
+          sudo apt-get install -y ./ksc.deb
+          pip install --user kaitaistruct==0.11
+      - run: python3 tools/check_formats.py
